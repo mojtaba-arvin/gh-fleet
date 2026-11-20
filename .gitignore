@@ -1,0 +1,30 @@
+# Build output
+/gh-fleet
+/gh-fleet.exe
+/dist/
+/bin/
+
+# Local data and runtime files
+/cache/
+/.cache/
+/work/
+*.log
+*.cache
+coverage.out
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.secrets/
+secrets.*
+*.pem
+*.p12
+*.key
+
+# Editor and operating-system files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
