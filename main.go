@@ -647,7 +647,7 @@ func fetchAllBranchesCmd(c *apiClient, repo string) tea.Cmd {
 }
 func fetchBranchHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 		msg := branchHistoryMsg{branches: make(map[string][]branch), skipped: make(map[string]bool), errors: make(map[string]string)}
 		sem := make(chan struct{}, 4)
@@ -1030,10 +1030,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					msg.repos[i].Fetched = v.Fetched
 					msg.repos[i].Branches = v.Branches
 					msg.repos[i].BranchesFetched = v.BranchesFetched
+					msg.repos[i].Branches = v.Branches
 					msg.repos[i].BranchHistoryDays = v.BranchHistoryDays
 					msg.repos[i].Commits = v.Commits
 					msg.repos[i].CommitHistoryDays = v.CommitHistoryDays
-					msg.repos[i].BranchHistoryDays = v.BranchHistoryDays
 					msg.repos[i].CommitsFetched = v.CommitsFetched
 				}
 			}
@@ -1161,7 +1161,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchReposCmd(m.api))
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
-			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= allRefreshInterval) {
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
