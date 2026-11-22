@@ -219,3 +219,50 @@ func TestAgentWorkloadCombinesCommitAndCIAttribution(t *testing.T) {
 		t.Fatalf("agent workload attribution incorrect: %+v", got)
 	}
 }
+
+
+func TestRepoWorkloadIncludesFeatureBranchCommitsAndDeduplicates(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{
+		FullName: "acme/ops",
+		Default: "main",
+		Commits: []commitInfo{
+			{SHA: "shared", Date: "2026-11-22T10:00:00Z", AuthorLogin: "agent-main"},
+		},
+		Branches: []branch{
+			{
+				Name: "feature/search",
+				History: []commitInfo{
+					{SHA: "shared", Date: "2026-11-22T10:00:00Z", AuthorLogin: "agent-main"},
+					{SHA: "feature-1", Date: "2026-11-22T11:00:00Z", AuthorLogin: "agent-feature"},
+				},
+			},
+			{
+				Name: "agent/worker",
+				History: []commitInfo{
+					{SHA: "worker-1", Date: "2026-11-21T11:00:00Z", AuthorLogin: "agent-worker"},
+				},
+			},
+		},
+	}
+	got := repoWorkload(repo, now)
+	if got.Commits24h != 2 || got.Commits7d != 3 {
+		t.Fatalf("branch-aware commit totals = %d/%d, want 2/3", got.Commits24h, got.Commits7d)
+	}
+	if strings.Join(got.Actors, ",") != "agent-feature,agent-main,agent-worker" {
+		t.Fatalf("branch-aware actors = %v", got.Actors)
+	}
+	activities := repoCommitActivity(repo, now)
+	if len(activities) != 3 {
+		t.Fatalf("unique branch commit activities = %d, want 3", len(activities))
+	}
+	foundFeatureBranch := false
+	for _, item := range activities {
+		if item.Commit.SHA == "feature-1" && item.Branch == "feature/search" {
+			foundFeatureBranch = true
+		}
+	}
+	if !foundFeatureBranch {
+		t.Fatal("feature branch commit was not attributed to its branch")
+	}
+}
