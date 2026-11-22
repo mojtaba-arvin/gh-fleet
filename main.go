@@ -660,8 +660,11 @@ func newModel(client *apiClient, cachePath string) model {
 	for _, r := range c.Repos {
 		client.cache[r.FullName] = append([]run(nil), r.Runs...)
 	}
-	var refsAt, runsAt time.Time
+	var refsAt, runsAt, commitsAt time.Time
 	for _, r := range c.Repos {
+		if r.CommitsFetched.After(commitsAt) {
+			commitsAt = r.CommitsFetched
+		}
 		if r.BranchesFetched.After(refsAt) {
 			refsAt = r.BranchesFetched
 		}
@@ -671,7 +674,7 @@ func newModel(client *apiClient, cachePath string) model {
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
-		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt}
+		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt}
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(fetchReposCmd(m.api), tickCmd()) }
@@ -877,6 +880,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if v, ok := old[msg.repos[i].FullName]; ok {
 					msg.repos[i].Runs = v.Runs
 					msg.repos[i].Fetched = v.Fetched
+					msg.repos[i].Commits = v.Commits
+					msg.repos[i].CommitsFetched = v.CommitsFetched
 				}
 			}
 			m.repos = msg.repos
@@ -937,8 +942,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.CommitsFetched = time.Now()
 			}
 		}
+		m.lastCommitHistory = time.Now()
 		if len(msg.commits) > 0 {
-			m.lastCommitHistory = time.Now()
 			saveCache(m)
 		}
 		m.busyCommitHistory = false
