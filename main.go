@@ -726,6 +726,7 @@ type model struct {
 	lastLog             time.Time
 	showHelp            bool
 	animationFrame      int
+	animationEnabled    bool
 }
 
 func fetchReposCmd(c *apiClient) tea.Cmd {
@@ -825,6 +826,13 @@ func fetchLogCmd(c *apiClient, repo string, id int64) tea.Cmd {
 		return logMsg{repo, id, text, err}
 	}
 }
+func (m model) animationCmdIfEnabled() tea.Cmd {
+	if !m.animationEnabled {
+		return nil
+	}
+	return animationCmd()
+}
+
 func animationCmd() tea.Cmd {
 	return tea.Tick(110*time.Millisecond, func(t time.Time) tea.Msg { return animationTickMsg(t) })
 }
@@ -913,6 +921,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 		commitsAt = time.Time{}
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
+		animationEnabled: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
 		agentEventsPath: agentEventsPath, agentTasks: make(map[string]agentTask),
 		agentSeenEventIDs: make(map[string]struct{}), busyAgentPoll: agentEventsPath != "",
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
@@ -920,7 +929,10 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != ""), animationCmd()}
+	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
+	if m.animationEnabled {
+		cmds = append(cmds, animationCmd())
+	}
 	if m.agentEventsPath != "" {
 		cmds = append(cmds, agentPollCmd(m.agentEventsPath, m.agentCursor))
 	}
@@ -931,7 +943,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case animationTickMsg:
 		m.animationFrame = (m.animationFrame + 1) % 4
-		if m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll {
+		if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
 			return m, animationCmd()
 		}
 	case tea.WindowSizeMsg:
@@ -1136,7 +1148,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.retryAt, "branches:"+r.FullName)
 				m.queueRun(r.FullName, false)
 			}
-			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), animationCmd())...)
+			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), m.animationCmdIfEnabled())...)
 		case "/":
 			m.focus = 1
 			m.filtering = true
@@ -2502,11 +2514,11 @@ func (m model) renderHeader(w int) string {
 	spinnerFrames := []string{"◐", "◓", "◑", "◒"}
 	spinnerColors := []lipgloss.Color{cyan, blue, purple, cyan}
 	indicator := goodStyle.Render("●")
-	if m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll {
+	if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
 		indicator = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true).Render(spinnerFrames[m.animationFrame])
 	}
 	status := goodStyle.Render("● " + state)
-	if m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll {
+	if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
 		status = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true).Render(indicator + " " + state)
 	}
 	if m.lastErr != "" {
@@ -2521,7 +2533,10 @@ func (m model) renderHeader(w int) string {
 		agentLine = "\n" + fit(agentStyle.Render(m.agentRuntimeNotice()), w)
 	}
 	if w < 70 {
-		smallState := spinnerFrames[m.animationFrame] + " SYNCING"
+		smallState := "● SYNCING"
+		if m.animationEnabled {
+			smallState = spinnerFrames[m.animationFrame] + " SYNCING"
+		}
 		smallStyle := lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true)
 		if !m.lastRepos.IsZero() {
 			smallState = "● CONNECTED"
