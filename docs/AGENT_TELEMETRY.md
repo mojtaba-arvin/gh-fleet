@@ -39,6 +39,7 @@ The first implementation should support one transport only. JSONL is the simples
 | reason | string | required for waiting / blocked | Controlled reason code |
 | summary | string | optional, bounded | Safe short human-readable status |
 | source | string | required | Adapter/runner identity and version |
+| heartbeat_interval_seconds | integer | optional | Expected heartbeat interval; 5–3600 seconds, default 30 |
 
 Example (illustrative only):
 
@@ -58,7 +59,8 @@ Example (illustrative only):
       "state": "waiting",
       "reason": "ci",
       "summary": "Waiting for required checks",
-      "source": "example-runner/1.0"
+      "source": "example-runner/1.0",
+      "heartbeat_interval_seconds": 30
     }
 
 ## Lifecycle events
@@ -123,3 +125,25 @@ Where a runner already emits OpenTelemetry, adapters should reuse its trace/span
 ## Compatibility
 
 GitHub-only operation remains supported. When no agent event source is configured, show observed GitHub actors and CI states with an explicit Agent telemetry: not connected indicator. Never synthesize agent identities from commit or workflow usernames.
+
+
+## gh-fleet local spool setup
+
+The first gh-fleet adapter consumes one existing local JSONL file. It does not run a server or control the agent process.
+
+Create a private spool on macOS/Linux:
+
+    mkdir -p "$HOME/.cache/gh-fleet"
+    chmod 700 "$HOME/.cache/gh-fleet"
+    touch "$HOME/.cache/gh-fleet/agent-events.jsonl"
+    chmod 600 "$HOME/.cache/gh-fleet/agent-events.jsonl"
+
+Run the dashboard with:
+
+    gh-fleet --agent-events "$HOME/.cache/gh-fleet/agent-events.jsonl"
+
+Or set `GH_FLEET_AGENT_EVENTS` to the same path. The command-line flag takes precedence. The reader rejects symlinks, non-regular files, Unix files with group/other permissions, files over 4 MiB, and event lines over 16 KiB. It reads incrementally and does not write telemetry into the GitHub metadata cache.
+
+Each record must be one complete JSON object followed by a newline. Producers should append a whole serialized event in one write where possible. If the spool is replaced or truncated, the reducer resets and the producer must re-emit an `agent.started` snapshot for every task that remains active before appending later events. This allows the new spool to rebuild state without treating a heartbeat as a start event.
+
+The dashboard polls the configured file every five seconds. GitHub-only mode does not open or poll an agent event file.
