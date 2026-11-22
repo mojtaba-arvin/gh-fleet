@@ -26,15 +26,15 @@ import (
 )
 
 const (
-	apiRoot             = "https://api.github.com"
-	graphQLURL          = "https://api.github.com/graphql"
-	allRefreshInterval  = 60 * time.Second
-	refsRefreshInterval = 180 * time.Second
+	apiRoot                 = "https://api.github.com"
+	graphQLURL              = "https://api.github.com/graphql"
+	allRefreshInterval      = 60 * time.Second
+	refsRefreshInterval     = 180 * time.Second
 	activityRefreshInterval = 5 * time.Minute
-	selectedInterval    = 20 * time.Second
-	logRefreshInterval  = 15 * time.Second
-	maxLogBytes         = 2 << 20
-	activityHistoryDays = 30
+	selectedInterval        = 20 * time.Second
+	logRefreshInterval      = 15 * time.Second
+	maxLogBytes             = 2 << 20
+	activityHistoryDays     = 30
 )
 
 var version = "dev"
