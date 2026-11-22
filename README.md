@@ -1,39 +1,38 @@
 # gh-fleet
 
-A fast, full-screen terminal dashboard for GitHub repositories, branch activity, pull requests, issues, and GitHub Actions.
+A full-screen terminal **agent operations and CI control room** for every GitHub repository accessible to the authenticated account.
 
-The dashboard is designed for large terminal windows. It shows an account overview on one screen, then scopes to a selected repository so unrelated repositories do not keep refreshing while you work.
+The dashboard is designed to answer operational questions quickly: which repositories are receiving work, which GitHub actors are producing commits or triggering workflows, which CI pipelines are running or queued, and where recent CI failures need attention.
 
-## Features
+## Operations dashboard
 
-- Account-wide repository table with branch, open pull request, open issue, and latest Actions status counts.
-- Aggregate cards for repositories, branches, open pull requests, open issues, running workflows, recent failures, and recently updated branch heads.
-- Full-width, per-repository hourly commit histograms are visible on the account dashboard. The expanded analytics screen includes a ranked, scrollable GitHub-style 1-year calendar heatmap for every repository active in the last year, plus 24-hour and 7-day chart ranges.
-- Per-repository count of currently running GitHub Actions jobs (only `in_progress`; queued runs are not counted).
-- Repository detail includes recent commits and authors for its branches; Actions runs are prioritized by activity and failure state, with logs for the selected run.
-- Repository names are shown without repeating the account owner; the owner is included when repository names collide.
-- Cached startup, conditional Actions requests, bounded concurrency, and retry backoff for unreliable connections.
+- **Repository workload:** every repository is ranked by operational urgency: running CI, queued CI, recent CI failures, recent commit activity, then idle. Each row shows commits in the last 24 hours and 7 days, a seven-day activity sparkline, observed commit/Actions actors, and current CI state.
+- **CI queue:** a live queue of running and waiting GitHub Actions workflows, plus failures from the last 24 hours. Each entry identifies the repository, workflow, branch, triggering actor, and time since its latest update.
+- **Agent workload:** press `c` to see a cross-repository actor matrix with 24-hour / 7-day commit counts, running / waiting CI counts, repositories touched, and last observed activity.
+- **Operational summary:** monitored repositories, repositories with recent work or active CI, running workflows, queued workflows, and recent CI failures.
+- **Repository scope:** select a repository with `Enter` to focus its pipeline and activity; press `Esc` to return to the fleet.
+- **Logs:** open a selected workflow's logs and follow them with 15-second refresh.
+- **Resilient monitoring:** cached startup, ETag-aware Actions requests, bounded concurrency, retry backoff, and cache retention during API outages.
 - No telemetry. GitHub credentials are read from GitHub CLI and held in memory for API requests.
+
+## Attribution and interpretation
+
+GitHub Actions exposes the actor who triggered each workflow. Commit history exposes a GitHub author login when GitHub can associate the commit with an account. gh-fleet combines these signals to show observed actors per repository; it does **not** claim that a GitHub actor is necessarily an autonomous agent or that a commit is a live agent heartbeat.
+
+Commit counts currently cover each repository's **default branch**. Work happening only on an unmerged feature branch may therefore appear through its Actions runs (including branch and triggering actor), but not yet in the commit totals. GitHub Actions statuses are shown as GitHub reports them: `in_progress` is RUNNING; `queued`, `waiting`, `requested`, and `pending` are WAITING. A queued or running workflow is a CI state, not proof that an external agent process is blocked waiting for it.
 
 ## Requirements
 
 - GitHub CLI (`gh`) installed and authenticated with `gh auth login`.
 - Go 1.24 or newer to build or install from source.
-- A terminal with at least 90 columns for the full dashboard. Smaller windows show commit charts and repositories together on the initial overview, with tabs for focused activity and Actions views. The dedicated commit-chart screen requires at least 70 columns and 16 rows.
+- A terminal with at least 90 columns for the full dashboard. Smaller terminals use focused tabs.
 
-The current release targets `github.com`. The authenticated GitHub CLI account needs access to the repositories and Actions data you want to view.
+The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor.
 
 ## Install
 
-Install the latest tagged source with Go:
-
 ```sh
 go install github.com/mojtaba-arvin/gh-fleet@latest
-```
-
-Then run:
-
-```sh
 gh-fleet
 ```
 
@@ -46,39 +45,38 @@ go build -o gh-fleet .
 ./gh-fleet
 ```
 
-After a tagged release is published, prebuilt archives for macOS, Linux, and Windows are available on the [Releases](https://github.com/mojtaba-arvin/gh-fleet/releases) page.
+Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](https://github.com/mojtaba-arvin/gh-fleet/releases) page when a tagged release is available.
 
 ## Controls
 
 | Key | Action |
 | --- | --- |
-| `Tab` / `Shift+Tab` | Focus repositories, activity, or Actions |
-| `↑` / `↓`, `j` / `k` | Move through the focused section |
+| `Tab` / `Shift+Tab` | Focus repositories, agent activity, or CI queue |
+| `↑` / `↓`, `j` / `k` | Move through the focused list |
 | `Enter` on a repository | Scope the dashboard to that repository |
-| `c` | Expand the commit charts into the full analytics screen |
-| `1` / `2` / `3` in charts | Switch between 24-hour, 7-day, and 1-year calendar views |
-| `↑` / `↓` in charts | Scroll through repository charts |
-| `Esc` | Return to the account overview |
+| `c` | Open the agent-by-repository workload matrix |
+| `↑` / `↓` in workload | Scroll actor rows |
+| `Esc` | Return from repository or log detail |
 | `/` | Filter repository names |
-| `Enter` on a run or `l` | Open that run's logs |
+| `Enter` on a CI run or `l` | Open that run's logs |
 | `w` | Pause or resume log refresh |
 | `u` | Refresh the selected run's logs now |
-| `r` | Refresh the dashboard; in repository detail, refresh only that repository |
-| `o` | Open the selected repository or run in a browser |
+| `r` | Refresh the dashboard; in repository detail, refresh that repository |
+| `o` | Open the selected repository or workflow in a browser |
 | `?` | Show help |
 | `q` | Quit |
 
 ## Refresh and network behavior
 
-- The account snapshot and default-branch commit history refresh every 3 minutes. On first launch, commit charts appear as soon as the initial history request completes; subsequent launches can render the previously cached charts immediately.
-- Commit history covers the previous 365 days on each active repository's default branch. Results are paginated through GitHub's REST API and fetched with at most four concurrent repository requests. The expanded `c` analytics screen ranks repositories by yearly commit total and renders a 53-week calendar heatmap for every repository with activity in that year; use `↑` / `↓` or `PgUp` / `PgDn` to browse the full list. `1` selects 24 hourly buckets, `2` selects 7 daily buckets, and `3` selects the 1-year calendar.
-- In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
+- Repository metadata, branch heads, PR counts, and issue counts refresh every 3 minutes.
+- GitHub Actions runs refresh every 60 seconds, with at most four concurrent repository requests.
+- Default-branch commit activity covers the previous 7 days and refreshes every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
 - Actions requests use ETags when GitHub provides them. Failed requests use exponential backoff and cached data remains visible.
 - The account overview fetches up to 100 branch heads per repository. Opening a repository loads additional branch pages when needed.
 
-These intervals keep the overview responsive without continuously polling every endpoint at a high rate. Press `r` for an immediate refresh.
+Press `r` for an immediate refresh.
 
 ## Data and privacy
 
@@ -98,6 +96,7 @@ gh-fleet --cache /path/to/cache.json
 ```sh
 gofmt -w main.go
 go vet ./...
+go test ./...
 go build ./...
 ```
 
