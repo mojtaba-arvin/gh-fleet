@@ -427,3 +427,30 @@ func TestReadAgentSpoolRejectsPermissiveParentDirectory(t *testing.T) {
 		t.Fatalf("permissive parent directory error = %v", err)
 	}
 }
+
+
+func TestOverviewDoesNotReportZeroAgentsBeforeTelemetryIsReadable(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width: 120, height: 30, lastRepos: now,
+		agentEventsPath: "/private/agent-events.jsonl",
+		busyAgentPoll: true,
+		repos: []repository{{FullName: "acme/api", Name: "api"}},
+	}
+	if view := m.View(); !strings.Contains(view, "AGENTS …") {
+		t.Fatalf("connecting source should not report zero agents:\n%s", view)
+	}
+	m.busyAgentPoll = false
+	m.lastAgentPoll = now
+	m.agentLastErr = "permission denied"
+	if view := m.View(); !strings.Contains(view, "AGENTS ?") {
+		t.Fatalf("unavailable source should not report zero agents:\n%s", view)
+	}
+	m.agentLastErr = ""
+	m.agentTasks = map[string]agentTask{
+		"active": {State: "working", LastSignalAt: now, HeartbeatInterval: 30 * time.Second},
+	}
+	if view := m.View(); !strings.Contains(view, "AGENTS 1") {
+		t.Fatalf("connected source should report observed task count:\n%s", view)
+	}
+}
