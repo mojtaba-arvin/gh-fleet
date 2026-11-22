@@ -1984,8 +1984,15 @@ func (m model) renderOverviewSummary() string {
 	}
 	fleetLabel := fmt.Sprintf("REPOSITORIES %d", len(m.repos))
 	if m.agentEventsPath != "" {
-		activeAgents, _ := countAgentTasks(m.agentTasks, time.Now())
-		fleetLabel = fmt.Sprintf("AGENTS %d", activeAgents)
+		switch {
+		case m.agentLastErr != "":
+			fleetLabel = "AGENTS ?"
+		case m.busyAgentPoll || m.lastAgentPoll.IsZero():
+			fleetLabel = "AGENTS …"
+		default:
+			activeAgents, _ := countAgentTasks(m.agentTasks, time.Now())
+			fleetLabel = fmt.Sprintf("AGENTS %d", activeAgents)
+		}
 	}
 	parts := []string{
 		badStyle.Render(fmt.Sprintf("ATTENTION %d", len(items))),
