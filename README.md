@@ -63,7 +63,8 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 | Tab / Shift+Tab | Switch between Overview, Repositories, and CI queue |
 | ↑ / ↓, j / k | Move through attention items, repositories, or workflow runs |
 | Enter on an attention item | Open its GitHub PR or workflow page |
-| Enter on a repository | Open repository detail; press Enter again to return |
+| Enter on a repository | Open repository detail; use ↑ / ↓ to select a PR |
+| Enter on a selected PR in repository detail | Open the PR; Esc returns to the repository list |
 | Enter on a CI run, or l | Open live workflow logs |
 | a | Open the optional GitHub identity diagnostic (not agent identity) |
 | Esc | Return from repository or log detail |
