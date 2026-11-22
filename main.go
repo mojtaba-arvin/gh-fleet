@@ -1691,6 +1691,166 @@ func (m model) renderCommitChart(w, h int) []string {
 	return content[:min(len(content), h)]
 }
 
+func (m model) chartRepos() []*repository {
+	var repos []*repository
+	for i := range m.repos {
+		if m.detail {
+			selected := m.selectedRepo()
+			if selected == nil || selected.FullName != m.repos[i].FullName {
+				continue
+			}
+		}
+		repos = append(repos, &m.repos[i])
+	}
+	now := time.Now().UTC()
+	sort.SliceStable(repos, func(i, j int) bool {
+		a := sumInts(repoCommitBuckets(*repos[i], now, 7))
+		b := sumInts(repoCommitBuckets(*repos[j], now, 7))
+		if a != b {
+			return a > b
+		}
+		return repos[i].FullName < repos[j].FullName
+	})
+	return repos
+}
+
+func repoCommitBuckets(repo repository, now time.Time, period int) []int {
+	if period == 7 {
+		values := make([]int, 7)
+		start := now.Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
+		for _, item := range repo.Commits {
+			t, err := time.Parse(time.RFC3339, item.Date)
+			if err != nil || t.Before(start) || t.After(now) {
+				continue
+			}
+			index := int(t.UTC().Truncate(24*time.Hour).Sub(start) / (24 * time.Hour))
+			if index >= 0 && index < len(values) {
+				values[index]++
+			}
+		}
+		return values
+	}
+	values := make([]int, 24)
+	start := now.Add(-24 * time.Hour)
+	for _, item := range repo.Commits {
+		t, err := time.Parse(time.RFC3339, item.Date)
+		if err != nil || t.Before(start) || t.After(now) {
+			continue
+		}
+		index := int(t.Sub(start) / time.Hour)
+		if index >= 0 && index < len(values) {
+			values[index]++
+		}
+	}
+	return values
+}
+
+func maxInt(values []int) int {
+	maximum := 0
+	for _, value := range values {
+		if value > maximum {
+			maximum = value
+		}
+	}
+	return maximum
+}
+
+func intsToFloats(values []int) []float64 {
+	out := make([]float64, len(values))
+	for i, value := range values {
+		out[i] = float64(value)
+	}
+	return out
+}
+
+func (m model) commitChartsView() string {
+	w, h := m.width, m.height
+	if w < 70 || h < 16 {
+		return "Commit charts need a terminal at least 70 columns wide and 16 rows high.\nPress Esc to return."
+	}
+	now := time.Now().UTC()
+	period := m.commitPeriod
+	if period != 7 {
+		period = 24
+	}
+	periodLabel := "LAST 24 HOURS · HOURLY"
+	if period == 7 {
+		periodLabel = "LAST 7 DAYS · DAILY"
+	}
+	head := m.renderHeader(w)
+	selector := titleStyle.Render("COMMIT TRENDS") + "   " +
+		selectStyle.Render("  1 · 24H  ") + " " +
+		mutedStyle.Render("2 · 7D") + "   " +
+		mutedStyle.Render(periodLabel)
+	if period == 7 {
+		selector = titleStyle.Render("COMMIT TRENDS") + "   " +
+		mutedStyle.Render("1 · 24H") + " " +
+		selectStyle.Render("  2 · 7D  ") + "   " +
+		mutedStyle.Render(periodLabel)
+	}
+	repos := m.chartRepos()
+	if len(repos) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render("No repositories available in this scope."), "Esc to return")
+	}
+	chartH := min(8, max(6, h/4))
+	cardH := chartH + 4
+	visible := max(1, (h-6)/(cardH+1))
+	maxStart := max(0, len(repos)-visible)
+	startIndex := min(m.chartScroll, maxStart)
+	endIndex := min(len(repos), startIndex+visible)
+	chartW := max(42, w-8)
+	var cards []string
+	for _, repo := range repos[startIndex:endIndex] {
+		values := repoCommitBuckets(*repo, now, period)
+		maximum := maxInt(values)
+		startTime := now.Add(-24 * time.Hour)
+		step := time.Hour
+		total := sumInts(values)
+		bucketLabel := "hour"
+		formatter := func(i int, value float64) string {
+			return time.Unix(int64(value), 0).UTC().Format("15h")
+		}
+		if period == 7 {
+			startTime = now.Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
+			step = 24 * time.Hour
+			bucketLabel = "day"
+			formatter = func(i int, value float64) string {
+				return time.Unix(int64(value), 0).UTC().Format("Mon")
+			}
+		}
+		endTime := startTime.Add(time.Duration(len(values)) * step)
+		chart := ntTimeseries.New(chartW, chartH,
+			ntTimeseries.WithTimeRange(startTime, endTime),
+			ntTimeseries.WithYRange(0, float64(max(1, maximum))),
+			ntTimeseries.WithXYSteps(4, 2),
+			ntTimeseries.WithXLabelFormatter(formatter),
+			ntTimeseries.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
+		for i, value := range values {
+			chart.Push(ntTimeseries.TimePoint{Time: startTime.Add(time.Duration(i)*step + step/2), Value: float64(value)})
+		}
+		chart.DrawBraille()
+		meta := fmt.Sprintf("%d commits · peak %d / %s · default branch: %s", total, maximum, bucketLabel, fit(repo.Default, 20))
+		if repo.CommitsFetched.IsZero() {
+			meta += " · loading"
+		}
+		content := []string{mutedStyle.Render(meta)}
+		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
+		cards = append(cards, box("REPOSITORY · "+m.repoLabel(repo), content, w, cardH, false))
+	}
+	if len(cards) == 0 {
+		cards = append(cards, mutedStyle.Render("No chart data available yet."))
+	}
+	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
+	footer := mutedStyle.Render(fmt.Sprintf("Showing %d–%d of %d repositories", startIndex+1, endIndex, len(repos))) +
+		"   ↑↓/j k scroll · PgUp/PgDn page · 1 24h · 2 7d · Esc back"
+	if m.busyCommitHistory {
+		footer += activeStyle.Render("   · refreshing history")
+	} else if !m.lastCommitHistory.IsZero() {
+		footer += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, head, selector, body, footer)
+}
+
 func (m model) renderActivity(w, h int) []string {
 	if !m.detail {
 		return m.renderCommitChart(w, h)
