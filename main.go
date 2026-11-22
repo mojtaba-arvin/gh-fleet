@@ -360,7 +360,7 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 									OID     string `json:"oid"`
 									Date    string `json:"committedDate"`
 									Message string `json:"messageHeadline"`
-									Author struct {
+									Author  struct {
 										Name string `json:"name"`
 										User struct {
 											Login string `json:"login"`
@@ -556,8 +556,8 @@ type branchesMsg struct {
 }
 type branchHistoryMsg struct {
 	branches map[string][]branch
-	skipped map[string]bool
-	errors map[string]string
+	skipped  map[string]bool
+	errors   map[string]string
 }
 
 type logMsg struct {
@@ -683,7 +683,9 @@ func fetchBranchHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
 						return
 					}
 					all = append(all, page...)
-					if next == "" { break }
+					if next == "" {
+						break
+					}
 					after = next
 				}
 				mu.Lock()
@@ -1469,17 +1471,23 @@ func repoCommitActivity(repo repository, now time.Time) []commitActivity {
 		if key == "" {
 			key = item.Date + ":" + item.Msg + ":" + commitActor(item)
 		}
-		if seen[key] { return }
+		if seen[key] {
+			return
+		}
 		seen[key] = true
 		out = append(out, commitActivity{Repo: repo.FullName, Branch: branchName, Commit: item})
 	}
-	for _, item := range repo.Commits { add(item, repo.Default) }
+	for _, item := range repo.Commits {
+		add(item, repo.Default)
+	}
 	for _, br := range repo.Branches {
 		if len(br.History) == 0 {
 			add(commitInfo{SHA: br.SHA, Date: br.Date, Msg: br.Msg}, br.Name)
 			continue
 		}
-		for _, item := range br.History { add(item, br.Name) }
+		for _, item := range br.History {
+			add(item, br.Name)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Commit.Date > out[j].Commit.Date })
 	return out
@@ -1889,14 +1897,24 @@ func repoWorkload(repo repository, now time.Time) repoWork {
 		if key == "" {
 			key = item.Date + ":" + item.Msg + ":" + commitActor(item)
 		}
-		if seen[key] { continue }
+		if seen[key] {
+			continue
+		}
 		seen[key] = true
 		out.Commits7d++
 		day := int(now.UTC().Truncate(24*time.Hour).Sub(t.UTC().Truncate(24*time.Hour)) / (24 * time.Hour))
-		if day >= 0 && day < 7 { out.Daily[6-day]++ }
-		if now.Sub(t) < 24*time.Hour { out.Commits24h++ }
-		if t.After(out.LastCommit) { out.LastCommit = t }
-		if actor := commitActor(item); actor != "" { actors[actor] = true }
+		if day >= 0 && day < 7 {
+			out.Daily[6-day]++
+		}
+		if now.Sub(t) < 24*time.Hour {
+			out.Commits24h++
+		}
+		if t.After(out.LastCommit) {
+			out.LastCommit = t
+		}
+		if actor := commitActor(item); actor != "" {
+			actors[actor] = true
+		}
 	}
 	for _, item := range repo.Runs {
 		updated := parseTime(item.UpdatedAt)
@@ -2342,14 +2360,22 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 			item := activity.Commit
 			t := parseTime(item.Date)
 			key := item.SHA
-			if key == "" { key = item.Date + ":" + item.Msg + ":" + commitActor(item) }
-			if seen[key] { continue }
+			if key == "" {
+				key = item.Date + ":" + item.Msg + ":" + commitActor(item)
+			}
+			if seen[key] {
+				continue
+			}
 			seen[key] = true
 			a := get(commitActor(item))
 			a.Commits7d++
-			if now.Sub(t) <= 24*time.Hour { a.Commits24h++ }
+			if now.Sub(t) <= 24*time.Hour {
+				a.Commits24h++
+			}
 			a.Repos[repo.FullName] = true
-			if t.After(a.Last) { a.Last = t }
+			if t.After(a.Last) {
+				a.Last = t
+			}
 		}
 		for _, item := range repo.Runs {
 			updated := parseTime(item.UpdatedAt)
@@ -2434,9 +2460,13 @@ func (m model) renderActivity(w, h int) []string {
 	now := time.Now()
 	cut := now.Add(-7 * 24 * time.Hour)
 	for _, repo := range m.repos {
-		if scope != "" && repo.FullName != scope { continue }
+		if scope != "" && repo.FullName != scope {
+			continue
+		}
 		for _, item := range repoCommitActivity(repo, now) {
-			if parseTime(item.Commit.Date).Before(cut) { continue }
+			if parseTime(item.Commit.Date).Before(cut) {
+				continue
+			}
 			items = append(items, item)
 		}
 	}
