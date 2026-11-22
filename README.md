@@ -70,7 +70,7 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 
 - Repository metadata, branch heads, PR counts, and issue counts refresh every 3 minutes.
 - GitHub Actions runs refresh every 60 seconds, with at most four concurrent repository requests.
-- Default-branch commit activity covers the previous 7 days and refreshes every 60 seconds, with at most four concurrent requests.
+- Default-branch commit activity covers the previous 7 days and refreshes every 3 minutes, with at most four concurrent requests.
 - Recent commit histories from all branches are fetched for repositories pushed within the last 30 days, with at most four concurrent repository requests; branch history refreshes every 3 minutes.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
