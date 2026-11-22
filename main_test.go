@@ -220,12 +220,11 @@ func TestAgentWorkloadCombinesCommitAndCIAttribution(t *testing.T) {
 	}
 }
 
-
 func TestRepoWorkloadIncludesFeatureBranchCommitsAndDeduplicates(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	repo := repository{
 		FullName: "acme/ops",
-		Default: "main",
+		Default:  "main",
 		Commits: []commitInfo{
 			{SHA: "shared", Date: "2026-11-22T10:00:00Z", AuthorLogin: "agent-main"},
 		},
