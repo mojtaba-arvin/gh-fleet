@@ -1916,6 +1916,35 @@ func (m model) renderOverviewSummary() string {
 
 func (m model) renderAttentionRows(w, h int) []string {
 	items := m.attentionItems()
+	if w < 70 {
+		rows := make([]string, 0, h)
+		start := max(0, min(m.attentionCursor, max(0, len(items)-1)))
+		for i := start; i < len(items) && len(rows) < h; i++ {
+			item := items[i]
+			line := attentionStyle(item.Kind).Render(item.Kind) + "  " +
+				titleStyle.Render(shortName(item.Repo)) + mutedStyle.Render(" · "+ageLabel(item.Age))
+			rows = append(rows, fit(line, w))
+			if len(rows) < h {
+				detail := item.Subject + " → " + item.Next
+				if i == m.attentionCursor {
+					rows = append(rows, selectStyle.Width(w).Render(fit(detail, w)))
+				} else {
+					rows = append(rows, fit(detail, w))
+				}
+			}
+		}
+		if len(items) == 0 {
+			message := "Nothing needs attention."
+			if len(m.repos) == 0 {
+				message = "Waiting for GitHub snapshot…"
+			}
+			rows = append(rows, goodStyle.Render(fit(message, w)))
+		}
+		for len(rows) < h {
+			rows = append(rows, "")
+		}
+		return rows[:min(len(rows), h)]
+	}
 	rows := []string{mutedStyle.Render(fit("SIGNAL                 REPOSITORY / ITEM                         AGE   NEXT STEP", w))}
 	room := max(0, h-1)
 	if len(items) == 0 {
@@ -2011,6 +2040,21 @@ func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
 
 func (m model) renderInFlightRows(w, h int) []string {
 	items := collectInFlightItems(m.repos, time.Now())
+	if w < 70 {
+		rows := make([]string, 0, h)
+		for i := 0; i < min(len(items), h); i++ {
+			item := items[i]
+			label := item.Kind + " " + shortName(item.Repo) + " " + item.Subject + " " + ageLabel(item.Age)
+			rows = append(rows, fit(label, w))
+		}
+		if len(items) == 0 {
+			rows = append(rows, mutedStyle.Render(fit("No active CI or requested reviews.", w)))
+		}
+		for len(rows) < h {
+			rows = append(rows, "")
+		}
+		return rows[:min(len(rows), h)]
+	}
 	rows := []string{mutedStyle.Render(fit("STATE       REPOSITORY / WORKFLOW OR PR", w))}
 	room := max(0, h-1)
 	if len(items) == 0 {
@@ -2095,6 +2139,31 @@ func repoPortfolioState(repo repository, now time.Time) string {
 
 func (m model) renderPortfolioRepos(w, h int) []string {
 	repos := m.visibleRepos()
+	if w < 70 {
+		rows := []string{mutedStyle.Render("REPOSITORY / DELIVERY STATE")}
+		for i, repo := range repos {
+			state := repoPortfolioState(*repo, time.Now())
+			line := titleStyle.Render(shortName(repo.FullName)) + "  " + repoStateStyle(state).Render(state)
+			if i == m.cursor {
+				line = selectStyle.Width(w).Render(fit(line, w))
+			}
+			rows = append(rows, fit(line, w))
+			rows = append(rows, fit(fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo)), w))
+		}
+		if len(repos) == 0 {
+			rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter."))
+		}
+		start := max(0, min(m.cursor*2, max(0, len(rows)-h)))
+		visible := rows[:0]
+		visible = append(visible, rows[0])
+		if len(rows) > 1 {
+			visible = append(visible, rows[1+start:min(len(rows), 1+start+h-1)]...)
+		}
+		for len(visible) < h {
+			visible = append(visible, "")
+		}
+		return visible[:min(len(visible), h)]
+	}
 	rows := []string{mutedStyle.Render(fit("REPOSITORY                 STATUS        PRs  ISSUES  LAST PUSH   LATEST CI", w))}
 	if len(repos) == 0 {
 		rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter or r to refresh."))
@@ -2240,8 +2309,6 @@ func fallback(value, otherwise string) string {
 }
 
 func (m model) renderHeader(w int) string {
-	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
-	login := mutedStyle.Render("  " + m.login)
 	state := "SYNCING"
 	if m.busyRepos && len(m.repos) > 0 {
 		state = "CACHE · REFRESHING"
@@ -2256,11 +2323,15 @@ func (m model) renderHeader(w int) string {
 	if m.lastErr != "" {
 		status = badStyle.Render("● " + state)
 	}
+	if w < 70 {
+		left := titleStyle.Render("GH FLEET") + mutedStyle.Render("  @"+m.login)
+		return fit(left+"  "+status, w) + "\n" +
+			mutedStyle.Render(fit("Agent runtime: NOT CONNECTED", w))
+	}
+	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
+	login := mutedStyle.Render("  " + m.login)
 	left := brand + login
 	sourceNotice := "Human operations view  ·  GitHub facts only  ·  Agent runtime: NOT CONNECTED"
-	if w < 70 {
-		sourceNotice = "Agent runtime: NOT CONNECTED"
-	}
 	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" +
 		mutedStyle.Render(fit(sourceNotice, w))
 }
@@ -3249,15 +3320,28 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ select  Tab view  Enter open  o browser  r refresh  ? help  q quit"
+	left := "↑↓ actions · Tab views · Enter/o open · a identities · r refresh · ? help · q quit"
 	switch m.focus {
 	case 1:
-		left = "↑↓ repositories  Enter detail  / filter  o browser  r refresh  Esc back  ? help  q quit"
+		left = "↑↓ repos · Enter detail · / filter · o browser · r refresh · ? help"
 		if m.detail {
-			left = "↑↓ select PR  Enter/o open PR  Esc portfolio  r refresh  ? help  q quit"
+			left = "↑↓ PRs · Enter/o open · Esc portfolio · r refresh · ? help"
 		}
 	case 2:
-		left = "↑↓ runs  Enter/l logs  o browser  r refresh  Tab overview  ? help  q quit"
+		left = "↑↓ runs · Enter/l logs · o browser · r refresh · ? help · q quit"
+	}
+	if w < 70 {
+		switch m.focus {
+		case 0:
+			left = "↑↓ select · Tab views · Enter open · ? help"
+		case 1:
+			left = "↑↓ select · Enter detail/open · Esc back"
+			if m.detail {
+				left = "↑↓ PRs · Enter open · Esc back"
+			}
+		case 2:
+			left = "↑↓ runs · Enter logs · Esc back"
+		}
 	}
 	if m.filtering {
 		left = "FILTER: " + m.filter + "_   type to search  Enter accept  Esc clear"
@@ -3271,7 +3355,7 @@ func (m model) renderFooter(w int) string {
 	if width(left)+width(right)+1 > w {
 		right = ""
 	}
-	return left + strings.Repeat(" ", max(1, w-width(left)-width(right))) + right
+	return fit(left, w) + strings.Repeat(" ", max(1, w-width(fit(left, w))-width(right))) + right
 }
 
 func (m model) logView() string {
@@ -3337,31 +3421,28 @@ func (m model) narrowView() string {
 }
 func (m model) helpView() string {
 	lines := []string{
-		"An operations cockpit for agent work across every accessible repository.", "",
+		"A human-facing console for delivery state across GitHub repositories.", "",
 		"NAVIGATION",
 		"  Tab / Shift+Tab     Overview, repositories, CI queue",
-		"  ↑ / ↓ or j / k     Move through attention items, repositories, or runs",
-		"  Enter               Open selected item / repository detail / CI logs",
-		"  o                   Open selected GitHub page in a browser",
-		"  a                   Show observed GitHub identities (not agent status)",
-		"  Esc                 Return from repository or log detail",
+		"  ↑ / ↓ or j / k     Select attention item, repository, PR, or workflow",
+		"  Enter               Open attention/PR destination, repository detail, or CI logs",
+		"  o                   Open selected GitHub destination in browser",
+		"  a                   Optional GitHub identity diagnostic (not agent status)",
+		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
 		"CI OPERATIONS",
 		"  RUNNING              GitHub Actions workflow is in progress",
-		"  WAITING              Workflow is queued, waiting, requested, or pending",
-		"  FAIL                 Workflow completed with a failure in the last 24h",
+		"  QUEUED               Workflow is waiting for a runner",
+		"  FAILED               Workflow completed with a failure in the last 24h",
 		"  r                    Refresh repository and Actions data",
-		"  o                    Open selected repository or workflow in browser",
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
-		"ATTRIBUTION + DATA",
-		"  Agent runtime is not connected; this view shows GitHub facts only.",
-		"  Commit authors and Actions actors are observed identities, not proof of human or agent ownership.",
-		"  Activity counts show unique commits over 24h / 7d / 30d, including active feature branches.",
-		"  People counts are distinct commit authors over 30 days; BR counts branches active in the last 7 days.",
-		"  A ~ prefix means history is incomplete or a branch reached the 20-commit sample limit.",
-		"  Repository metadata and commit history refresh every 3 minutes; Actions refresh every 60 seconds.",
-		"  Cached data remains visible during API outages.",
+		"SOURCES + FRESHNESS",
+		"  Agent runtime is not connected; the overview shows GitHub facts only.",
+		"  Commit authors and Actions trigger actors are observed identities, not agent owners.",
+		"  Activity history is loaded only when the optional identity diagnostic is opened.",
+		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
+		"  Cached data remains visible during API outages; stale data is labelled.",
 	}
 	return box("HELP", lines, m.width-4, m.height-2, true)
 }
