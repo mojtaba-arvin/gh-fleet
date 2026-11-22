@@ -1799,6 +1799,10 @@ func (m model) commitChartsView() string {
 	startIndex := min(m.chartScroll, maxStart)
 	endIndex := min(len(repos), startIndex+visible)
 	chartW := max(42, w-8)
+	scaleMax := 1
+	for _, repo := range repos {
+		scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period)))
+	}
 	var cards []string
 	for _, repo := range repos[startIndex:endIndex] {
 		values := repoCommitBuckets(*repo, now, period)
@@ -1821,7 +1825,7 @@ func (m model) commitChartsView() string {
 		endTime := startTime.Add(time.Duration(len(values)) * step)
 		chart := ntTimeseries.New(chartW, chartH,
 			ntTimeseries.WithTimeRange(startTime, endTime),
-			ntTimeseries.WithYRange(0, float64(max(1, maximum))),
+			ntTimeseries.WithYRange(0, float64(scaleMax)),
 			ntTimeseries.WithXYSteps(4, 2),
 			ntTimeseries.WithXLabelFormatter(formatter),
 			ntTimeseries.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
