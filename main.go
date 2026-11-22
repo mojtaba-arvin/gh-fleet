@@ -727,7 +727,7 @@ type model struct {
 	showHelp            bool
 	animationFrame      int
 	animationEnabled    bool
-	animationActive      bool
+	animationActive     bool
 }
 
 func fetchReposCmd(c *apiClient) tea.Cmd {
