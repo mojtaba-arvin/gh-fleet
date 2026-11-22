@@ -1530,7 +1530,7 @@ func (m model) activityTitle() string {
 			return "RECENT COMMITS · " + m.repoLabel(r) + " · 30D"
 		}
 	}
-	return "PER-REPO COMMIT TRENDS · PRESS C FOR FULL CHARTS"
+	return "REPOSITORY COMMIT ACTIVITY · 24H"
 }
 func (m model) actionsTitle() string {
 	if m.detail {
@@ -2154,7 +2154,7 @@ func (m model) narrowView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, head, tabLine, box(panelTitle, content, w, contentH+2, true), m.renderFooter(w))
 }
 func (m model) helpView() string {
-	lines := []string{"A compact account-wide view. Repository names appear without repeating the account owner.", "", "NAVIGATION", "  Tab / Shift+Tab     Focus repositories, activity, or Actions", "  ↑ / ↓ or j / k     Move in the focused section", "  c                   Open individual repository commit charts", "  1 / 2               Switch charts between 24-hour and 7-day ranges", "  Enter               Scope the dashboard to a repository / open selected run log", "  Esc                 Return from repository or log detail", "  /                   Filter repository names; type to search, Backspace edits", "", "ACTIONS", "  r                   Refresh repository and Actions data", "  o                   Open selected repository or run in browser", "  l / Enter on run    Open its logs; while open, polling follows only that run", "  w                   Pause or resume live log refresh (15 seconds)", "  u                   Refresh the current log immediately", "  ?                   Close help     q: quit", "", "DATA + NETWORK", "  Branch heads, open PRs and issues share one GraphQL request. Actions uses", "  conditional requests. All data remains visible from local cache during outages.", "  The account snapshot refreshes every 3 minutes; Actions every 60 seconds.", "  In repository detail, that repo refreshes every 20 seconds."}
+	lines := []string{"A compact account-wide view. Repository names appear without repeating the account owner.", "", "NAVIGATION", "  Tab / Shift+Tab     Focus repositories, activity, or Actions", "  ↑ / ↓ or j / k     Move in the focused section", "  Commit histograms are visible on the default dashboard at startup.", "  c                   Open expanded per-repository commit analytics", "  1 / 2               Switch charts between 24-hour and 7-day ranges", "  Enter               Scope the dashboard to a repository / open selected run log", "  Esc                 Return from repository or log detail", "  /                   Filter repository names; type to search, Backspace edits", "", "ACTIONS", "  r                   Refresh repository and Actions data", "  o                   Open selected repository or run in browser", "  l / Enter on run    Open its logs; while open, polling follows only that run", "  w                   Pause or resume live log refresh (15 seconds)", "  u                   Refresh the current log immediately", "  ?                   Close help     q: quit", "", "DATA + NETWORK", "  Branch heads, open PRs and issues share one GraphQL request. Actions uses", "  conditional requests. All data remains visible from local cache during outages.", "  The account snapshot refreshes every 3 minutes; Actions every 60 seconds.", "  In repository detail, that repo refreshes every 20 seconds."}
 	return box("HELP", lines, m.width-4, m.height-2, true)
 }
 
