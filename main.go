@@ -653,6 +653,7 @@ type model struct {
 	repos               []repository
 	width, height       int
 	cursor, runCursor   int
+	attentionCursor     int
 	commitScroll        int
 	workloadScroll      int
 	commitPeriod        int
@@ -918,7 +919,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.agentWorkloadMode {
 			switch msg.String() {
-			case "esc", "backspace", "c":
+			case "esc", "backspace", "a":
 				m.agentWorkloadMode = false
 			case "r":
 				var cmds []tea.Cmd
@@ -952,7 +953,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "c" {
+		if msg.String() == "a" {
 			m.agentWorkloadMode = true
 			m.workloadScroll = 0
 
@@ -975,35 +976,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detail = false
 			}
 		case "enter":
-			if m.focus == 0 && len(m.visibleRepos()) > 0 {
-				m.detail = !m.detail
-				if m.detail {
-					r := m.selectedRepo()
-					var cmds []tea.Cmd
-					if r != nil {
-						if m.queuedRuns[r.FullName] {
-							filtered := m.runQueue[:0]
-							for _, name := range m.runQueue {
-								if name != r.FullName {
-									filtered = append(filtered, name)
+			switch m.focus {
+			case 0:
+				if item := m.selectedAttention(); item != nil && item.URL != "" {
+					_ = exec.Command("open", item.URL).Start()
+				}
+			case 1:
+				if len(m.visibleRepos()) > 0 {
+					m.detail = !m.detail
+					if m.detail {
+						r := m.selectedRepo()
+						var cmds []tea.Cmd
+						if r != nil {
+							if m.queuedRuns[r.FullName] {
+								filtered := m.runQueue[:0]
+								for _, name := range m.runQueue {
+									if name != r.FullName {
+										filtered = append(filtered, name)
+									}
 								}
+								m.runQueue = filtered
+								delete(m.queuedRuns, r.FullName)
 							}
-							m.runQueue = filtered
-							delete(m.queuedRuns, r.FullName)
+							m.queueRun(r.FullName, true)
+							if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= activityRefreshInterval) && !m.busyBranches[r.FullName] {
+								m.busyBranches[r.FullName] = true
+								cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
+							}
 						}
-						m.queueRun(r.FullName, true)
-						if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= activityRefreshInterval) && !m.busyBranches[r.FullName] {
-							m.busyBranches[r.FullName] = true
-							cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
+						cmds = append(cmds, m.drainRunQueue()...)
+						if len(cmds) > 0 {
+							return m, tea.Batch(cmds...)
 						}
-					}
-					cmds = append(cmds, m.drainRunQueue()...)
-					if len(cmds) > 0 {
-						return m, tea.Batch(cmds...)
 					}
 				}
-			}
-			if m.focus == 2 {
+			case 2:
 				if r := m.selectedRun(); r != nil {
 					m.logMode = true
 					m.logRepo = r.repo
@@ -1044,21 +1051,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...)...)
 		case "/":
-			m.focus = 0
+			m.focus = 1
 			m.filtering = true
 			m.filter = ""
 		case "o":
-			if m.focus == 0 {
+			switch m.focus {
+			case 0:
+				if item := m.selectedAttention(); item != nil && item.URL != "" {
+					_ = exec.Command("open", item.URL).Start()
+				}
+			case 1:
 				if r := m.selectedRepo(); r != nil {
 					_ = exec.Command("open", r.URL).Start()
 				}
-			}
-			if m.focus == 2 {
+			case 2:
 				if r := m.selectedRun(); r != nil {
 					_ = exec.Command("open", r.item.URL).Start()
 				}
 			}
 		case "l":
+			if m.focus == 0 {
+				if item := m.selectedAttention(); item != nil && item.RunID != 0 {
+					m.logMode = true
+					m.logRepo = item.Repo
+					m.logRun = item.RunID
+					m.logText = ""
+					m.logErr = ""
+					m.logBusy = true
+					m.logWatch = true
+					m.lastLog = time.Now()
+					return m, fetchLogCmd(m.api, m.logRepo, m.logRun)
+				}
+			}
 			if m.focus == 2 {
 				if r := m.selectedRun(); r != nil {
 					m.logMode = true
@@ -1077,15 +1101,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			m.move(1)
 		case "home", "g":
-			if m.focus == 0 {
+			switch m.focus {
+			case 0:
+				m.attentionCursor = 0
+			case 1:
 				m.cursor = 0
-			} else if m.focus == 2 {
+			case 2:
 				m.runCursor = 0
 			}
 		case "end", "G":
-			if m.focus == 0 {
+			switch m.focus {
+			case 0:
+				m.attentionCursor = max(0, len(m.attentionItems())-1)
+			case 1:
 				m.cursor = max(0, len(m.visibleRepos())-1)
-			} else if m.focus == 2 {
+			case 2:
 				m.runCursor = max(0, len(m.visibleRuns())-1)
 			}
 		case "backspace":
@@ -1294,11 +1324,11 @@ func (m *model) logScroll(n int) {
 func (m *model) move(n int) {
 	switch m.focus {
 	case 0:
+		m.attentionCursor = max(0, min(len(m.attentionItems())-1, m.attentionCursor+n))
+	case 1:
 		m.cursor = max(0, min(len(m.visibleRepos())-1, m.cursor+n))
 	case 2:
 		m.runCursor = max(0, min(len(m.visibleRuns())-1, m.runCursor+n))
-	case 1:
-		m.commitScroll = max(0, m.commitScroll+n)
 	}
 }
 
@@ -2954,7 +2984,7 @@ func (m model) agentWorkloadView() string {
 		return "Agent workload view needs a terminal at least 70 columns wide and 12 rows high.\nPress Esc to return."
 	}
 	head := m.renderHeader(w)
-	title := titleStyle.Render("AGENT WORKLOAD · BY REPOSITORY") + mutedStyle.Render("   Commit authors + GitHub Actions actors · last 7 days")
+	title := titleStyle.Render("GITHUB IDENTITIES · BY REPOSITORY") + mutedStyle.Render("   Observed commit authors + workflow trigger actors · last 7 days")
 	rows := collectAgentWorkload(m.repos, time.Now())
 	if m.detail {
 		if r := m.selectedRepo(); r != nil {
@@ -2967,7 +2997,7 @@ func (m model) agentWorkloadView() string {
 			rows = filtered
 		}
 	}
-	content := []string{mutedStyle.Render(fit("ACTOR / AGENT       COMMITS 24H / 7D     CI RUN / WAIT     REPOSITORIES                 LAST SEEN", w))}
+	content := []string{mutedStyle.Render(fit("OBSERVED IDENTITY   COMMITS 24H / 7D     CI TRIGGERED RUN / WAIT     REPOSITORIES      LAST SEEN", w))}
 	room := max(1, h-7)
 	if len(rows) == 0 {
 		content = append(content, mutedStyle.Render("No actor activity found in the last 7 days."))
@@ -2983,7 +3013,7 @@ func (m model) agentWorkloadView() string {
 		line := titleStyle.Render(fit(a.Name, 18)) + " " + mutedStyle.Render(fmt.Sprintf("%5d / %-5d", a.Commits24h, a.Commits7d)) + " " + activeStyle.Render(fmt.Sprintf("%3d / %-3d", a.Running, a.Waiting)) + " " + fit(strings.Join(names, ","), max(12, w-75)) + " " + mutedStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
 		content = append(content, fit(line, w))
 	}
-	footer := mutedStyle.Render(fmt.Sprintf("ACTORS %d  ·  ↑↓ / j k scroll  PgUp/PgDn page  r refresh  Esc back", len(rows)))
+	footer := mutedStyle.Render(fmt.Sprintf("IDENTITIES %d  ·  not verified agent identities  ·  ↑↓ scroll  r refresh  Esc back", len(rows)))
 	return lipgloss.JoinVertical(lipgloss.Left, head, title, strings.Join(content, "\n"), footer)
 }
 
@@ -3210,12 +3240,13 @@ func (m model) helpView() string {
 	lines := []string{
 		"An operations cockpit for agent work across every accessible repository.", "",
 		"NAVIGATION",
-		"  Tab / Shift+Tab     Focus repository workload, agent work, or CI queue",
-		"  ↑ / ↓ or j / k     Move through repositories, commits, and pipelines",
-		"  c                   Open the agent-by-repository workload view",
-		"  Enter               Scope to a repository / open selected CI logs",
+		"  Tab / Shift+Tab     Overview, repositories, CI queue",
+		"  ↑ / ↓ or j / k     Move through attention items, repositories, or runs",
+		"  Enter               Open selected item / repository detail / CI logs",
+		"  o                   Open selected GitHub page in a browser",
+		"  a                   Show observed GitHub identities (not agent status)",
 		"  Esc                 Return from repository or log detail",
-		"  /                   Filter repository names", "",
+		"  /                   Filter repositories", "",
 		"CI OPERATIONS",
 		"  RUNNING              GitHub Actions workflow is in progress",
 		"  WAITING              Workflow is queued, waiting, requested, or pending",
@@ -3225,8 +3256,8 @@ func (m model) helpView() string {
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"ATTRIBUTION + DATA",
-		"  Commit authors use GitHub login where available; human and automation accounts are counted uniformly.",
-		"  Actions actors identify who triggered a workflow; this is not an agent heartbeat.",
+		"  Agent runtime is not connected; this view shows GitHub facts only.",
+		"  Commit authors and Actions actors are observed identities, not proof of human or agent ownership.",
 		"  Activity counts show unique commits over 24h / 7d / 30d, including active feature branches.",
 		"  People counts are distinct commit authors over 30 days; BR counts branches active in the last 7 days.",
 		"  A ~ prefix means history is incomplete or a branch reached the 20-commit sample limit.",
