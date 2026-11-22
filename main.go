@@ -1848,9 +1848,9 @@ func (m model) commitChartsView() string {
 	if len(repos) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render("No repositories available in this scope."), "Esc to return")
 	}
-	chartH := 5
+	chartH := 4
 	cardH := chartH + 6
-	visible := max(1, (h-8)/(cardH+1))
+	visible := max(1, (h-7)/(cardH+1))
 	maxStart := max(0, len(repos)-visible)
 	startIndex := min(m.chartScroll, maxStart)
 	endIndex := min(len(repos), startIndex+visible)
