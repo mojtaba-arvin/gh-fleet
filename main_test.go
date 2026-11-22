@@ -15,12 +15,12 @@ func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
 			Runs: []run{{
 				ID: 7, Name: "unit-tests", Status: "completed", Conclusion: "failure",
 				UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339),
-				URL: "https://github.com/acme/checkout/actions/runs/7",
+				URL:       "https://github.com/acme/checkout/actions/runs/7",
 			}},
 			PullRequests: []pullRequestSummary{{
 				Number: 12, Title: "Adjust checkout", ReviewDecision: "CHANGES_REQUESTED",
 				UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339),
-				URL: "https://github.com/acme/checkout/pull/12",
+				URL:       "https://github.com/acme/checkout/pull/12",
 			}},
 		}},
 	}
@@ -46,8 +46,8 @@ func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 			PullRequests: []pullRequestSummary{{
 				Number: 27, Title: "Review access change", ReviewDecision: "REVIEW_REQUIRED",
 				RequestedReviewers: []string{"reviewer-a"},
-				UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339),
-				URL: "https://github.com/acme/active/pull/27",
+				UpdatedAt:          now.Add(-time.Hour).Format(time.RFC3339),
+				URL:                "https://github.com/acme/active/pull/27",
 			}},
 		}},
 	}
@@ -311,8 +311,6 @@ func TestRepoWorkloadMarksSampledBranchHistory(t *testing.T) {
 	}
 }
 
-
-
 func TestAttentionItemsPrioritizeExplicitHumanActions(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	repos := []repository{{
@@ -435,7 +433,6 @@ func TestOverviewResponsiveLayoutAtEightyColumns(t *testing.T) {
 	}
 }
 
-
 func TestMoveSelectsPullRequestsInRepositoryDetail(t *testing.T) {
 	m := model{
 		focus: 1, detail: true,
@@ -475,7 +472,7 @@ func TestRepositoryDetailShowsSelectablePullRequests(t *testing.T) {
 			FullName: "acme/api", Name: "api", PRs: 2, PushedAt: now.Format(time.RFC3339),
 			PullRequests: []pullRequestSummary{
 				{Number: 42, Title: "Add checkout retry", ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"reviewer-a"}, UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/42"},
-				{Number: 41, Title: "Fix payment retry", ReviewDecision: "CHANGES_REQUESTED", UpdatedAt: now.Add(-2*time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/41"},
+				{Number: 41, Title: "Fix payment retry", ReviewDecision: "CHANGES_REQUESTED", UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/41"},
 			},
 		}},
 	}
@@ -506,7 +503,6 @@ func TestShortTerminalOverviewDoesNotOverflowHeight(t *testing.T) {
 		}
 	}
 }
-
 
 func TestIncompletePullRequestSampleIsVisibleAsAttention(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
