@@ -1761,7 +1761,8 @@ func repoWorkload(repo repository, now time.Time) repoWork {
 		}
 	}
 	for _, item := range repo.Runs {
-		if isActive(item) && item.Actor.Login != "" {
+		updated := parseTime(item.UpdatedAt)
+		if item.Actor.Login != "" && !updated.IsZero() && now.Sub(updated) <= 7*24*time.Hour {
 			actors[item.Actor.Login] = true
 		}
 	}
@@ -2223,22 +2224,22 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 			}
 		}
 		for _, item := range repo.Runs {
-			if !isActive(item) {
+			updated := parseTime(item.UpdatedAt)
+			if item.Actor.Login == "" || updated.IsZero() || now.Sub(updated) > 7*24*time.Hour {
 				continue
 			}
-			a := get(item.Actor.Login)
+			actor := get(item.Actor.Login)
 			if item.Status == "in_progress" {
-				a.Running++
+				actor.Running++
 			}
 			if queuedRun(item) {
-				a.Waiting++
+				actor.Waiting++
 			}
-			a.Repos[repo.FullName] = true
-			if t := parseTime(item.UpdatedAt); t.After(a.Last) {
-				a.Last = t
+			actor.Repos[repo.FullName] = true
+			if updated.After(actor.Last) {
+				actor.Last = updated
 			}
-		}
-	}
+		}	}
 	out := make([]agentWorkload, 0, len(byActor))
 	for _, a := range byActor {
 		out = append(out, *a)
