@@ -1661,9 +1661,9 @@ func sumInts(values []int) int {
 	return total
 }
 
-func scaledBarHeights(values []int, height int) []int {
+func scaledBarHeights(values []int, height, scaleMax int) []int {
 	out := make([]int, len(values))
-	maximum := maxInt(values)
+	maximum := max(1, scaleMax)
 	if maximum == 0 || height <= 0 {
 		return out
 	}
@@ -1676,15 +1676,14 @@ func scaledBarHeights(values []int, height int) []int {
 	return out
 }
 
-func renderBarRows(values []int, chartWidth, chartHeight, period int, now time.Time) []string {
+func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, now time.Time) []string {
 	if len(values) == 0 || chartWidth < len(values) || chartHeight < 1 {
 		return []string{mutedStyle.Render("No activity in this range")}
 	}
-	heights := scaledBarHeights(values, chartHeight)
+	heights := scaledBarHeights(values, chartHeight, scaleMax)
 	gap := 1
 	slot := max(1, (chartWidth-gap*(len(values)-1))/len(values))
 	barStyle := lipgloss.NewStyle().Foreground(cyan).Bold(true)
-	peak := maxInt(values)
 	rows := make([]string, 0, chartHeight+2)
 	for level := chartHeight; level >= 1; level-- {
 		var line strings.Builder
@@ -1725,7 +1724,6 @@ func renderBarRows(values []int, chartWidth, chartHeight, period int, now time.T
 		}
 	}
 	rows = append(rows, mutedStyle.Render(strings.TrimRight(labels.String(), " ")))
-	_ = peak
 	return rows
 }
 
@@ -1742,8 +1740,10 @@ func (m model) renderCommitChart(w, h int) []string {
 		name := fit(m.repoLabel(repo), max(8, w-25))
 		meta := fmt.Sprintf("%d commits · peak %d", sumInts(values), maxInt(values))
 		content = append(content, titleStyle.Render(name)+mutedStyle.Render("  "+meta))
-		bars := renderBarRows(values, max(24, w-2), 2, 24, now)
-		content = append(content, bars...)
+		chart := ntSparkline.New(max(16, min(28, w-2)), 2, ntSparkline.WithMaxValue(float64(max(1, maxInt(values)))), ntSparkline.WithNoAutoMaxValue(), ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
+		chart.PushAll(intsToFloats(values))
+		chart.DrawColumnsOnly()
+		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\\n"), "\\n")...)
 		if len(content) >= h { break }
 	}
 	for len(content) < h { content = append(content, "") }
@@ -1855,6 +1855,8 @@ func (m model) commitChartsView() string {
 	startIndex := min(m.chartScroll, maxStart)
 	endIndex := min(len(repos), startIndex+visible)
 	chartW := max(48, w-10)
+	scaleMax := 1
+	for _, repo := range repos { scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period))) }
 	var cards []string
 	for _, repo := range repos[startIndex:endIndex] {
 		values := repoCommitBuckets(*repo, now, period)
@@ -1870,7 +1872,7 @@ func (m model) commitChartsView() string {
 		if repo.CommitsFetched.IsZero() { status = "HISTORY LOADING" }
 		meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(status) +
 			mutedStyle.Render(fmt.Sprintf("   PEAK %d / BUCKET   ·   ACTIVE %d/%d BUCKETS   ·   %s", peak, active, len(values), fit(branch, 20)))
-		chart := renderBarRows(values, chartW, chartH, period, now)
+		chart := renderBarRows(values, chartW, chartH, period, scaleMax, now)
 		content := []string{meta, ""}
 		content = append(content, chart...)
 		cards = append(cards, box("◈  "+name, content, w, cardH+2, false))
