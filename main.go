@@ -1435,12 +1435,12 @@ type commitActivity struct {
 	Commit commitInfo
 }
 
-func repoCommitActivity(repo repository) []commitActivity {
+func repoCommitActivity(repo repository, now time.Time) []commitActivity {
 	var out []commitActivity
 	seen := make(map[string]bool)
 	add := func(item commitInfo, branchName string) {
 		t := parseTime(item.Date)
-		if t.IsZero() || t.After(time.Now()) || time.Since(t) > 7*24*time.Hour {
+		if t.IsZero() || t.After(now) || now.Sub(t) > 7*24*time.Hour {
 			return
 		}
 		key := item.SHA
@@ -1860,7 +1860,7 @@ func repoWorkload(repo repository, now time.Time) repoWork {
 	out := repoWork{Daily: make([]int, 7)}
 	seen := map[string]bool{}
 	actors := map[string]bool{}
-	for _, activity := range repoCommitActivity(repo) {
+	for _, activity := range repoCommitActivity(repo, now) {
 		item := activity.Commit
 		t := parseTime(item.Date)
 		key := item.SHA
@@ -2316,7 +2316,7 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 	}
 	for _, repo := range repos {
 		seen := map[string]bool{}
-		for _, activity := range repoCommitActivity(repo) {
+		for _, activity := range repoCommitActivity(repo, now) {
 			item := activity.Commit
 			t := parseTime(item.Date)
 			key := item.SHA
@@ -2409,10 +2409,11 @@ func (m model) renderActivity(w, h int) []string {
 			scope = r.FullName
 		}
 	}
-	cut := time.Now().Add(-7 * 24 * time.Hour)
+	now := time.Now()
+	cut := now.Add(-7 * 24 * time.Hour)
 	for _, repo := range m.repos {
 		if scope != "" && repo.FullName != scope { continue }
-		for _, item := range repoCommitActivity(repo) {
+		for _, item := range repoCommitActivity(repo, now) {
 			if parseTime(item.Commit.Date).Before(cut) { continue }
 			items = append(items, item)
 		}
