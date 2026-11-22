@@ -6,50 +6,55 @@ import (
 	"time"
 )
 
-func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
+func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width:  100,
-		height: 30,
+		width: 120, height: 30, lastRepos: now,
 		repos: []repository{{
-			FullName:       "acme/active",
-			Name:           "active",
-			Default:        "main",
-			CommitsFetched: now,
-			Commits: []commitInfo{
-				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
-				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339)},
-			},
+			FullName: "acme/checkout", Name: "checkout", PRs: 1,
+			Runs: []run{{
+				ID: 7, Name: "unit-tests", Status: "completed", Conclusion: "failure",
+				UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339),
+				URL:       "https://github.com/acme/checkout/actions/runs/7",
+			}},
+			PullRequests: []pullRequestSummary{{
+				Number: 12, Title: "Adjust checkout", ReviewDecision: "CHANGES_REQUESTED",
+				UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339),
+				URL:       "https://github.com/acme/checkout/pull/12",
+			}},
 		}},
 	}
-	view := strings.Join(m.renderCommitChart(90, 12), "\n")
-	for _, want := range []string{"active", "2 commits", "peak 1", "now", "█"} {
+	view := m.View()
+	for _, want := range []string{"DELIVERY OPERATIONS", "NEEDS ATTENTION", "CI FAILED", "CHANGES REQUESTED", "IN FLIGHT / WAITING"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("default dashboard chart does not contain %q:\n%s", want, view)
+			t.Errorf("operator overview does not contain %q:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"COMMITS · 30D", "CONTRIBUTORS", "ACTOR / AGENT", "2 commits"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("operator overview still foregrounds %q:\n%s", unwanted, view)
 		}
 	}
 }
 
-func TestNarrowDashboardShowsOperationalRepositoryWorkload(t *testing.T) {
+func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width: 80, height: 30,
+		width: 80, height: 24, lastRepos: now,
 		repos: []repository{{
-			FullName: "acme/active", Name: "active", Default: "main",
-			CommitsFetched: now,
-			Commits: []commitInfo{
-				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339), AuthorLogin: "agent-one"},
-				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339), AuthorLogin: "agent-one"},
-			},
-			Runs: []run{{Status: "in_progress", Actor: struct {
-				Login string `json:"login"`
-			}{Login: "agent-two"}}},
+			FullName: "acme/active", Name: "active", PRs: 1,
+			PullRequests: []pullRequestSummary{{
+				Number: 27, Title: "Review access change", ReviewDecision: "REVIEW_REQUIRED",
+				RequestedReviewers: []string{"reviewer-a"},
+				UpdatedAt:          now.Add(-time.Hour).Format(time.RFC3339),
+				URL:                "https://github.com/acme/active/pull/27",
+			}},
 		}},
 	}
-	view := m.narrowView()
-	for _, want := range []string{"Repositories", "active", "~1", "2/2"} {
+	view := m.View()
+	for _, want := range []string{"Overview", "Repositories", "CI queue", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW", "reviewer-a"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("narrow operations dashboard does not contain %q:\n%s", want, view)
+			t.Errorf("narrow operator dashboard does not contain %q:\n%s", want, view)
 		}
 	}
 }
@@ -303,5 +308,217 @@ func TestRepoWorkloadMarksSampledBranchHistory(t *testing.T) {
 	got := repoWorkload(repo, now)
 	if !got.ActivitySampled {
 		t.Fatal("expected sampled activity to be marked")
+	}
+}
+
+func TestAttentionItemsPrioritizeExplicitHumanActions(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repos := []repository{{
+		FullName: "acme/checkout",
+		Runs: []run{
+			{ID: 1, Name: "test", Status: "completed", Conclusion: "failure", UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/checkout/actions/runs/1"},
+			{ID: 2, Name: "deploy-preview", Status: "queued", CreatedAt: now.Add(-20 * time.Minute).Format(time.RFC3339)},
+			{ID: 3, Name: "integration", Status: "in_progress", StartedAt: now.Add(-90 * time.Minute).Format(time.RFC3339)},
+			{ID: 4, Name: "fast", Status: "in_progress", StartedAt: now.Add(-5 * time.Minute).Format(time.RFC3339)},
+		},
+		PullRequests: []pullRequestSummary{
+			{Number: 10, Title: "Adjust checkout flow", ReviewDecision: "CHANGES_REQUESTED", UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339)},
+			{Number: 11, Title: "Add payment retry", ReviewDecision: "REVIEW_REQUIRED", UpdatedAt: now.Add(-3 * time.Hour).Format(time.RFC3339)},
+			{Number: 12, Title: "Fix migration", MergeStateStatus: "DIRTY", UpdatedAt: now.Add(-4 * time.Hour).Format(time.RFC3339)},
+			{Number: 13, Title: "Improve docs", ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"reviewer-a"}, UpdatedAt: now.Add(-96 * time.Hour).Format(time.RFC3339)},
+			{Number: 14, Title: "Draft change", IsDraft: true, ReviewDecision: "CHANGES_REQUESTED", UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)},
+			{Number: 15, Title: "Approved change", ReviewDecision: "APPROVED", UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)},
+		},
+	}}
+	got := collectAttentionItems(repos, now)
+	wantKinds := []string{"CI FAILED", "CHANGES REQUESTED", "CONFLICTS", "REVIEW NEEDED", "CI QUEUED", "CI RUNNING", "REVIEW WAIT"}
+	if len(got) != len(wantKinds) {
+		t.Fatalf("attention items = %d, want %d: %+v", len(got), len(wantKinds), got)
+	}
+	for i, want := range wantKinds {
+		if got[i].Kind != want {
+			t.Errorf("attention[%d].Kind = %q, want %q", i, got[i].Kind, want)
+		}
+	}
+	if got[0].URL != "https://github.com/acme/checkout/actions/runs/1" || got[0].RunID != 1 {
+		t.Fatalf("failed workflow lost its actionable link: %+v", got[0])
+	}
+}
+
+func TestAttentionThresholdsDoNotLabelRecentWorkAsStuck(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{
+		Runs: []run{
+			{Status: "queued", CreatedAt: now.Add(-5 * time.Minute).Format(time.RFC3339)},
+			{Status: "in_progress", StartedAt: now.Add(-10 * time.Minute).Format(time.RFC3339)},
+			{Status: "completed", Conclusion: "failure", UpdatedAt: now.Add(-48 * time.Hour).Format(time.RFC3339)},
+		},
+		PullRequests: []pullRequestSummary{
+			{Number: 4, IsDraft: true, ReviewDecision: "REVIEW_REQUIRED", UpdatedAt: now.Add(-96 * time.Hour).Format(time.RFC3339)},
+			{Number: 5, ReviewDecision: "APPROVED", UpdatedAt: now.Add(-96 * time.Hour).Format(time.RFC3339)},
+		},
+	}
+	if got := collectAttentionItems([]repository{repo}, now); len(got) != 0 {
+		t.Fatalf("recent, draft, approved, or old events should not create attention: %+v", got)
+	}
+}
+
+func TestOverviewDefaultsToHumanActionQueues(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width: 120, height: 30, login: "operator", lastRepos: now,
+		repos: []repository{{
+			FullName: "acme/checkout", Name: "checkout", PRs: 1,
+			PullRequests: []pullRequestSummary{{
+				Number: 42, Title: "Payment retry", ReviewDecision: "REVIEW_REQUIRED",
+				URL: "https://github.com/acme/checkout/pull/42",
+			}},
+		}},
+	}
+	view := m.View()
+	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW NEEDED", "NOT CONNECTED"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("operator overview does not contain %q:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"COMMITS · 30D", "CONTRIBUTORS", "ACTOR / AGENT"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("operator overview still foregrounds %q:\n%s", unwanted, view)
+		}
+	}
+}
+
+func TestRepositoryPortfolioDoesNotTreatCommitVolumeAsHealth(t *testing.T) {
+	now := time.Now().UTC()
+	repo := repository{
+		FullName: "acme/quiet", PushedAt: now.Add(-40 * 24 * time.Hour).Format(time.RFC3339),
+		Commits: []commitInfo{{SHA: "many", Date: now.Format(time.RFC3339)}},
+	}
+	if got := repoPortfolioState(repo, now); got != "QUIET" {
+		t.Fatalf("portfolio state = %q, want QUIET; commit volume must not override repository delivery state", got)
+	}
+}
+
+func TestPullRequestReviewTextUsesExplicitReviewEvidence(t *testing.T) {
+	cases := []struct {
+		name string
+		pr   pullRequestSummary
+		want string
+	}{
+		{"draft", pullRequestSummary{IsDraft: true, ReviewDecision: "REVIEW_REQUIRED"}, "DRAFT"},
+		{"changes requested", pullRequestSummary{ReviewDecision: "CHANGES_REQUESTED"}, "CHANGES REQUESTED"},
+		{"reviewer missing", pullRequestSummary{ReviewDecision: "REVIEW_REQUIRED"}, "REVIEWER NOT REQUESTED"},
+		{"waiting", pullRequestSummary{ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"alice"}}, "AWAITING alice"},
+		{"waiting reviewer list truncated", pullRequestSummary{ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"alice"}, RequestedReviewersTruncated: true}, "AWAITING alice, …"},
+		{"approved", pullRequestSummary{ReviewDecision: "APPROVED"}, "APPROVED"},
+		{"unknown", pullRequestSummary{}, "REVIEW STATUS UNKNOWN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pullRequestReviewText(tc.pr); got != tc.want {
+				t.Fatalf("review text = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOverviewResponsiveLayoutAtEightyColumns(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{width: 80, height: 24, lastRepos: now, repos: []repository{{FullName: "acme/api", Name: "api"}}}
+	view := m.View()
+	for _, want := range []string{"Overview", "Repositories", "CI queue", "NEEDS ATTENTION"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("80-column overview missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestMoveSelectsPullRequestsInRepositoryDetail(t *testing.T) {
+	m := model{
+		focus: 1, detail: true,
+		repos: []repository{{
+			FullName: "acme/api",
+			PullRequests: []pullRequestSummary{
+				{Number: 10, Title: "first"},
+				{Number: 11, Title: "second"},
+				{Number: 12, Title: "third"},
+			},
+		}},
+	}
+	m.move(1)
+	if m.prCursor != 1 {
+		t.Fatalf("PR cursor = %d, want 1", m.prCursor)
+	}
+	m.move(1)
+	m.move(1)
+	if m.prCursor != 2 {
+		t.Fatalf("PR cursor = %d, want 2", m.prCursor)
+	}
+	m.move(1)
+	if m.prCursor != 2 {
+		t.Fatalf("PR cursor moved past final item: %d", m.prCursor)
+	}
+	m.move(-10)
+	if m.prCursor != 0 {
+		t.Fatalf("PR cursor did not clamp to first item: %d", m.prCursor)
+	}
+}
+
+func TestRepositoryDetailShowsSelectablePullRequests(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width: 100, height: 24, focus: 1, detail: true,
+		repos: []repository{{
+			FullName: "acme/api", Name: "api", PRs: 2, PushedAt: now.Format(time.RFC3339),
+			PullRequests: []pullRequestSummary{
+				{Number: 42, Title: "Add checkout retry", ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"reviewer-a"}, UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/42"},
+				{Number: 41, Title: "Fix payment retry", ReviewDecision: "CHANGES_REQUESTED", UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/41"},
+			},
+		}},
+	}
+	view := m.repoDetailView()
+	for _, want := range []string{"OPEN PULL REQUESTS", "ENTER / o OPEN", "#42", "AWAITING reviewer-a", "#41", "CHANGES REQUESTED"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("repository detail missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestCompactOverviewKeepsAgentSourceNoticeVisible(t *testing.T) {
+	m := model{width: 40, height: 14, focus: 0}
+	view := m.View()
+	for _, want := range []string{"NOT CONNECTED", "ATT 0", "NEEDS ATTENTION"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("40-column overview missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestShortTerminalOverviewDoesNotOverflowHeight(t *testing.T) {
+	for _, height := range []int{10, 11, 12, 13, 16, 17} {
+		m := model{width: 80, height: height, focus: 0}
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) > height {
+			t.Errorf("overview rendered %d lines at terminal height %d", len(lines), height)
+		}
+	}
+}
+
+func TestIncompletePullRequestSampleIsVisibleAsAttention(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{
+		FullName: "acme/busy", Name: "busy", URL: "https://github.com/acme/busy",
+		PRs: 14, PRsTruncated: true,
+		PullRequests: []pullRequestSummary{{Number: 14, Title: "Recent PR", ReviewDecision: "APPROVED"}},
+	}
+	items := collectAttentionItems([]repository{repo}, now)
+	if len(items) != 1 {
+		t.Fatalf("attention items = %d, want sample warning: %+v", len(items), items)
+	}
+	if items[0].Kind != "PR SAMPLE" || items[0].URL != repo.URL {
+		t.Fatalf("incomplete PR sample is not actionable: %+v", items[0])
+	}
+	if got := repoPortfolioState(repo, now); got != "ATTENTION" {
+		t.Fatalf("portfolio state = %q, want ATTENTION while PR sample is incomplete", got)
 	}
 }
