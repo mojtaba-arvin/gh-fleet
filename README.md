@@ -25,7 +25,7 @@ The current release targets `github.com`. The authenticated GitHub CLI account n
 
 ## Install
 
-Install the latest tagged source with Go:
+Install the latest published module revision with Go:
 
 ```sh
 go install github.com/mojtaba-arvin/gh-fleet@latest
