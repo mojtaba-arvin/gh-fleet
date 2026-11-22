@@ -9,12 +9,12 @@ import (
 func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width: 100,
+		width:  100,
 		height: 30,
 		repos: []repository{{
-			FullName: "acme/active",
-			Name: "active",
-			Default: "main",
+			FullName:       "acme/active",
+			Name:           "active",
+			Default:        "main",
 			CommitsFetched: now,
 			Commits: []commitInfo{
 				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
