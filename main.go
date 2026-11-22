@@ -22,6 +22,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	ntTimeseries "github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
+	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 )
 
 const (
@@ -539,6 +541,9 @@ type model struct {
 	width, height       int
 	cursor, runCursor   int
 	commitScroll        int
+	chartScroll         int
+	commitPeriod        int
+	commitCharts        bool
 	runScroll           int
 	logOffset           int
 	focus               int // repositories, activity, Actions
@@ -732,6 +737,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logScroll(20)
 			case "pgdown":
 				m.logScroll(-20)
+			}
+			return m, nil
+		}
+		if m.commitCharts {
+			switch msg.String() {
+			case "esc", "backspace", "c":
+				m.commitCharts = false
+			case "1":
+				m.commitPeriod = 24
+				m.chartScroll = 0
+			case "2":
+				m.commitPeriod = 7
+				m.chartScroll = 0
+			case "up", "k":
+				m.chartScroll = max(0, m.chartScroll-1)
+			case "down", "j":
+				m.chartScroll = min(max(0, len(m.chartRepos())-1), m.chartScroll+1)
+			case "pgup":
+				m.chartScroll = max(0, m.chartScroll-3)
+			case "pgdown":
+				m.chartScroll = min(max(0, len(m.chartRepos())-1), m.chartScroll+3)
+			case "home", "g":
+				m.chartScroll = 0
+			case "end", "G":
+				m.chartScroll = max(0, len(m.chartRepos())-1)
+			}
+			return m, nil
+		}
+		if msg.String() == "c" {
+			m.commitCharts = true
+			m.chartScroll = 0
+			if m.commitPeriod != 7 {
+				m.commitPeriod = 24
 			}
 			return m, nil
 		}
@@ -1340,6 +1378,9 @@ func (m model) View() string {
 	if m.logMode {
 		return m.logView()
 	}
+	if m.commitCharts {
+		return m.commitChartsView()
+	}
 	if m.width < 90 {
 		return m.narrowView()
 	}
@@ -1485,7 +1526,7 @@ func (m model) activityTitle() string {
 			return "RECENT COMMITS · " + m.repoLabel(r) + " · 30D"
 		}
 	}
-	return "COMMIT VOLUME · DEFAULT BRANCHES · ALL REPOS"
+	return "PER-REPO COMMIT TRENDS · PRESS C FOR FULL CHARTS"
 }
 func (m model) actionsTitle() string {
 	if m.detail {
@@ -1617,31 +1658,42 @@ func sumInts(values []int) int {
 	return total
 }
 
-func (m model) renderCommitChart(h int) []string {
-	hourly, daily := commitCounts(m.repos, time.Now())
-	line24 := lipgloss.NewStyle().Foreground(cyan).Render("24H ") + sparkline(hourly)
-	line7 := lipgloss.NewStyle().Foreground(purple).Render("7D  ") + sparkline(daily)
-	status := mutedStyle.Render(fmt.Sprintf("24h: %d commits   7d: %d commits", sumInts(hourly), sumInts(daily)))
-	if m.busyCommitHistory {
-		status += activeStyle.Render("   · refreshing")
-	} else if m.lastCommitHistory.IsZero() {
-		status += mutedStyle.Render("   · loading history")
-	} else {
-		status += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
+func (m model) renderCommitChart(w, h int) []string {
+	now := time.Now().UTC()
+	repos := append([]*repository(nil), m.chartRepos()...)
+	sort.SliceStable(repos, func(i, j int) bool {
+		return sumInts(repoCommitBuckets(*repos[i], now, 24)) > sumInts(repoCommitBuckets(*repos[j], now, 24))
+	})
+	content := make([]string, 0, h)
+	if len(repos) == 0 {
+		return []string{mutedStyle.Render("Waiting for repository history…")}
 	}
-	content := []string{line24, line7, status}
+	chartW := min(24, max(10, w-4))
+	for _, repo := range repos {
+		values := repoCommitBuckets(*repo, now, 24)
+		maxBucket := maxInt(values)
+		chart := ntSparkline.New(chartW, 2,
+			ntSparkline.WithMaxValue(float64(max(1, maxBucket))),
+			ntSparkline.WithNoAutoMaxValue(),
+			ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
+		chart.PushAll(intsToFloats(values))
+		chart.DrawColumnsOnly()
+		name := fit(m.repoLabel(repo), max(8, w-chartW-15))
+		content = append(content, titleStyle.Render(name)+mutedStyle.Render(fmt.Sprintf(" %d / 24h", sumInts(values))))
+		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
+		if len(content) >= h {
+			break
+		}
+	}
 	for len(content) < h {
 		content = append(content, "")
 	}
-	if len(content) > h {
-		content = content[:h]
-	}
-	return content
+	return content[:min(len(content), h)]
 }
 
 func (m model) renderActivity(w, h int) []string {
 	if !m.detail {
-		return m.renderCommitChart(h)
+		return m.renderCommitChart(w, h)
 	}
 	scope := ""
 	if m.detail {
@@ -1765,7 +1817,7 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ move  Tab section  Enter detail/log  / filter  r refresh  o open  ? help  q quit"
+	left := "↑↓ move  Tab section  c commit charts  Enter detail/log  / filter  r refresh  ? help  q quit"
 	if m.filtering {
 		left = "FILTER: " + m.filter + "_   type to search  Enter accept  Esc clear"
 	}
@@ -1843,7 +1895,7 @@ func (m model) narrowView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, head, tabLine, box(panelTitle, content, w, contentH+2, true), m.renderFooter(w))
 }
 func (m model) helpView() string {
-	lines := []string{"A compact account-wide view. Repository names appear without repeating the account owner.", "", "NAVIGATION", "  Tab / Shift+Tab     Focus repositories, activity, or Actions", "  ↑ / ↓ or j / k     Move in the focused section", "  Enter               Scope the dashboard to a repository / open selected run log", "  Esc                 Return from repository or log detail", "  /                   Filter repository names; type to search, Backspace edits", "", "ACTIONS", "  r                   Refresh repository and Actions data", "  o                   Open selected repository or run in browser", "  l / Enter on run    Open its logs; while open, polling follows only that run", "  w                   Pause or resume live log refresh (15 seconds)", "  u                   Refresh the current log immediately", "  ?                   Close help     q: quit", "", "DATA + NETWORK", "  Branch heads, open PRs and issues share one GraphQL request. Actions uses", "  conditional requests. All data remains visible from local cache during outages.", "  The account snapshot refreshes every 3 minutes; Actions every 60 seconds.", "  In repository detail, that repo refreshes every 20 seconds."}
+	lines := []string{"A compact account-wide view. Repository names appear without repeating the account owner.", "", "NAVIGATION", "  Tab / Shift+Tab     Focus repositories, activity, or Actions", "  ↑ / ↓ or j / k     Move in the focused section", "  c                   Open individual repository commit charts", "  1 / 2               Switch charts between 24-hour and 7-day ranges", "  Enter               Scope the dashboard to a repository / open selected run log", "  Esc                 Return from repository or log detail", "  /                   Filter repository names; type to search, Backspace edits", "", "ACTIONS", "  r                   Refresh repository and Actions data", "  o                   Open selected repository or run in browser", "  l / Enter on run    Open its logs; while open, polling follows only that run", "  w                   Pause or resume live log refresh (15 seconds)", "  u                   Refresh the current log immediately", "  ?                   Close help     q: quit", "", "DATA + NETWORK", "  Branch heads, open PRs and issues share one GraphQL request. Actions uses", "  conditional requests. All data remains visible from local cache during outages.", "  The account snapshot refreshes every 3 minutes; Actions every 60 seconds.", "  In repository detail, that repo refreshes every 20 seconds."}
 	return box("HELP", lines, m.width-4, m.height-2, true)
 }
 
