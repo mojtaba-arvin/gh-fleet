@@ -2239,7 +2239,8 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 			if updated.After(actor.Last) {
 				actor.Last = updated
 			}
-		}	}
+		}
+	}
 	out := make([]agentWorkload, 0, len(byActor))
 	for _, a := range byActor {
 		out = append(out, *a)
