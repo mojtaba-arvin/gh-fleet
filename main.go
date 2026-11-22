@@ -727,6 +727,7 @@ type model struct {
 	showHelp            bool
 	animationFrame      int
 	animationEnabled    bool
+	animationActive      bool
 }
 
 func fetchReposCmd(c *apiClient) tea.Cmd {
@@ -826,10 +827,11 @@ func fetchLogCmd(c *apiClient, repo string, id int64) tea.Cmd {
 		return logMsg{repo, id, text, err}
 	}
 }
-func (m model) animationCmdIfEnabled() tea.Cmd {
-	if !m.animationEnabled {
+func (m *model) animationCmdIfNeeded() tea.Cmd {
+	if !m.animationEnabled || m.animationActive {
 		return nil
 	}
+	m.animationActive = true
 	return animationCmd()
 }
 
@@ -922,6 +924,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		animationEnabled: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
+		animationActive: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
 		agentEventsPath: agentEventsPath, agentTasks: make(map[string]agentTask),
 		agentSeenEventIDs: make(map[string]struct{}), busyAgentPoll: agentEventsPath != "",
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
@@ -946,6 +949,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
 			return m, animationCmd()
 		}
+		m.animationActive = false
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
@@ -1148,7 +1152,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.retryAt, "branches:"+r.FullName)
 				m.queueRun(r.FullName, false)
 			}
-			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), m.animationCmdIfEnabled())...)
+			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), m.animationCmdIfNeeded())...)
 		case "/":
 			m.focus = 1
 			m.filtering = true
