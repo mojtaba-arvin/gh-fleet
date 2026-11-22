@@ -403,11 +403,11 @@ func TestGitHubOnlyOverviewDoesNotShowAgentTaskCounts(t *testing.T) {
 		"agent": {AgentID: "runner", TaskID: "task-1", Repository: "acme/api", State: "working", LastSignalAt: time.Now()},
 	}
 	view := m.View()
-	if !strings.Contains(view, "Agent runtime: NOT CONNECTED") {
-		t.Fatalf("GitHub-only view does not disclose missing runtime source:\n%s", view)
+	if strings.Contains(view, "Agent runtime: NOT CONNECTED") {
+		t.Fatalf("GitHub-only view shows a permanent warning for an unused optional source:\n%s", view)
 	}
-	if strings.Contains(view, "AGENTS 1") {
-		t.Fatalf("GitHub-only view unexpectedly displays agent task count:\n%s", view)
+	if strings.Contains(view, "AGENTS 1") || strings.Contains(view, "AGENTS 0") {
+		t.Fatalf("GitHub-only view unexpectedly displays agent task counts:\n%s", view)
 	}
 }
 
