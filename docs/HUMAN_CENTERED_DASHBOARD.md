@@ -82,8 +82,8 @@ The main panel is split into two queues when the terminal is wide enough and sta
 **Needs attention** is sorted by severity, then age:
 1. Recent CI failure.
 2. PR with changes requested.
-3. PR with no requested reviewer while review is required.
-4. Reported merge conflict.
+3. Reported merge conflict.
+4. PR with no requested reviewer while review is required.
 5. CI queued beyond the queue-age threshold.
 6. Long-running CI beyond the observation threshold.
 7. PR waiting on a requested review beyond the follow-up threshold.
@@ -116,6 +116,7 @@ Include queued, running, and recent failed runs. Show workflow, repository, bran
 - A running workflow becomes a follow-up item after 45 minutes. Phrase it as "running for …; inspect if unexpected".
 - A PR with `CHANGES_REQUESTED` is an attention item.
 - A PR with `REVIEW_REQUIRED` and no requested reviewer is labelled "reviewer not requested"; it is not silently assigned to a person.
+- When more than the latest ten open PRs exist, an explicit "PR sample" attention cue warns that other review states have not been loaded.
 - A PR with a requested reviewer is shown as awaiting review. After 72 hours without an update, show a follow-up cue; do not call it overdue unless an SLA is explicitly configured.
 - A PR with a reported dirty/conflicting merge state is surfaced for inspection.
 - Draft PRs are not treated as review-ready work.
