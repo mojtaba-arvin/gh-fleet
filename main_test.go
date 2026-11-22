@@ -109,8 +109,8 @@ func TestDefaultDashboardStartsOnActivityAndShowsRepositoryHistograms(t *testing
 	now := time.Now().UTC()
 	m.repos = []repository{
 		{
-			FullName: "acme/alpha",
-			Name: "alpha",
+			FullName:       "acme/alpha",
+			Name:           "alpha",
 			CommitsFetched: now,
 			Commits: []commitInfo{
 				{SHA: "a1", Date: now.Add(-20 * time.Minute).Format(time.RFC3339)},
@@ -118,8 +118,8 @@ func TestDefaultDashboardStartsOnActivityAndShowsRepositoryHistograms(t *testing
 			},
 		},
 		{
-			FullName: "acme/beta",
-			Name: "beta",
+			FullName:       "acme/beta",
+			Name:           "beta",
 			CommitsFetched: now,
 			Commits: []commitInfo{
 				{SHA: "b1", Date: now.Add(-90 * time.Minute).Format(time.RFC3339)},
