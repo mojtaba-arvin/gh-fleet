@@ -673,6 +673,15 @@ type tickMsg time.Time
 
 type model struct {
 	api                 *apiClient
+	agentEventsPath     string
+	agentCursor         agentSpoolCursor
+	agentTasks          map[string]agentTask
+	agentSeenEventIDs   map[string]struct{}
+	agentSeenOrder      []string
+	lastAgentPoll       time.Time
+	agentLastErr        string
+	agentRejected       int
+	busyAgentPoll       bool
 	busyCommitHistory   bool
 	lastCommitHistory   time.Time
 	busyBranchHistory   bool
@@ -811,8 +820,12 @@ func fetchLogCmd(c *apiClient, repo string, id int64) tea.Cmd {
 		return logMsg{repo, id, text, err}
 	}
 }
-func tickCmd() tea.Cmd {
-	return tea.Tick(15*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+func tickCmd(agentTelemetryEnabled bool) tea.Cmd {
+	interval := 15 * time.Second
+	if agentTelemetryEnabled {
+		interval = agentPollInterval
+	}
+	return tea.Tick(interval, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func initialCachePath() string {
@@ -855,7 +868,11 @@ func saveCache(m model) {
 		_ = os.Rename(tmp, m.cachePath)
 	}
 }
-func newModel(client *apiClient, cachePath string) model {
+func newModel(client *apiClient, cachePath string, agentEventPaths ...string) model {
+	agentEventsPath := os.Getenv("GH_FLEET_AGENT_EVENTS")
+	if len(agentEventPaths) > 0 {
+		agentEventsPath = agentEventPaths[0]
+	}
 	c := loadCache(cachePath)
 	client.etags = c.ETags
 	if client.etags == nil {
@@ -887,11 +904,19 @@ func newModel(client *apiClient, cachePath string) model {
 		commitsAt = time.Time{}
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
+		agentEventsPath: agentEventsPath, agentTasks: make(map[string]agentTask),
+		agentSeenEventIDs: make(map[string]struct{}), busyAgentPoll: agentEventsPath != "",
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
 		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt, lastBranchHistory: branchHistoryAt}
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(fetchReposCmd(m.api), tickCmd()) }
+func (m model) Init() tea.Cmd {
+	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
+	if m.agentEventsPath != "" {
+		cmds = append(cmds, agentPollCmd(m.agentEventsPath, m.agentCursor))
+	}
+	return tea.Batch(cmds...)
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -1297,9 +1322,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logText = msg.text
 			m.logErr = ""
 		}
+	case agentPollMsg:
+		m.busyAgentPoll = false
+		m.lastAgentPoll = time.Now()
+		if msg.Err != nil {
+			m.agentLastErr = msg.Err.Error()
+			break
+		}
+		if msg.Batch.Reset {
+			m.agentTasks = make(map[string]agentTask)
+			m.agentSeenEventIDs = make(map[string]struct{})
+			m.agentSeenOrder = nil
+			m.agentRejected = 0
+		}
+		m.agentCursor = msg.Batch.Cursor
+		m.agentRejected += msg.Batch.InvalidLines
+		for _, event := range msg.Batch.Events {
+			err := applyAgentEvent(m.agentTasks, m.agentSeenEventIDs, &m.agentSeenOrder, event, time.Now())
+			if err != nil && err.Error() != "duplicate event_id" {
+				m.agentRejected++
+			}
+		}
+		pruneAgentTasks(m.agentTasks, time.Now())
+		m.agentLastErr = ""
 	case tickMsg:
 		var cmds []tea.Cmd
 		now := time.Now()
+		if m.agentEventsPath != "" && !m.busyAgentPoll &&
+			(m.lastAgentPoll.IsZero() || now.Sub(m.lastAgentPoll) >= agentPollInterval) {
+			m.busyAgentPoll = true
+			cmds = append(cmds, agentPollCmd(m.agentEventsPath, m.agentCursor))
+		}
 		if len(m.repos) == 0 && !m.busyRepos && !now.Before(m.retryAt["repos"]) {
 			m.busyRepos = true
 			cmds = append(cmds, fetchReposCmd(m.api))
@@ -1345,7 +1398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastLog = now
 			cmds = append(cmds, fetchLogCmd(m.api, m.logRepo, m.logRun))
 		}
-		cmds = append(cmds, tickCmd())
+		cmds = append(cmds, tickCmd(m.agentEventsPath != ""))
 		if len(cmds) > 1 {
 			return m, tea.Batch(cmds...)
 		}
@@ -1883,8 +1936,10 @@ func ageLabel(age time.Duration) string {
 
 func attentionStyle(kind string) lipgloss.Style {
 	switch kind {
-	case "CI FAILED", "CHANGES REQUESTED", "CONFLICTS":
+	case "CI FAILED", "CHANGES REQUESTED", "CONFLICTS", "AGENT FAILED":
 		return badStyle
+	case "AGENT BLOCKED", "AGENT STALE":
+		return branchStyle
 	case "REVIEW NEEDED", "CI QUEUED", "REVIEW WAIT", "CI RUNNING", "PR SAMPLE":
 		return activeStyle
 	default:
@@ -1893,7 +1948,18 @@ func attentionStyle(kind string) lipgloss.Style {
 }
 
 func (m model) attentionItems() []attentionItem {
-	return collectAttentionItems(m.repos, time.Now())
+	now := time.Now()
+	items := collectAttentionItems(m.repos, now)
+	if m.agentEventsPath != "" {
+		items = append(items, collectAgentAttentionItems(m.agentTasks, now)...)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Priority != items[j].Priority {
+			return items[i].Priority < items[j].Priority
+		}
+		return items[i].Age > items[j].Age
+	})
+	return items
 }
 
 func (m model) selectedAttention() *attentionItem {
@@ -1916,12 +1982,24 @@ func (m model) renderOverviewSummary() string {
 	if m.width < 70 {
 		return fit(fmt.Sprintf("ATT %d  ·  PR %d  ·  RUN %d  ·  QUEUED %d", len(items), openPRs, running, queued), m.width)
 	}
+	fleetLabel := fmt.Sprintf("REPOSITORIES %d", len(m.repos))
+	if m.agentEventsPath != "" {
+		switch {
+		case m.agentLastErr != "":
+			fleetLabel = "AGENTS ?"
+		case m.busyAgentPoll || m.lastAgentPoll.IsZero():
+			fleetLabel = "AGENTS …"
+		default:
+			activeAgents, _ := countAgentTasks(m.agentTasks, time.Now())
+			fleetLabel = fmt.Sprintf("AGENTS %d", activeAgents)
+		}
+	}
 	parts := []string{
 		badStyle.Render(fmt.Sprintf("ATTENTION %d", len(items))),
 		titleStyle.Render(fmt.Sprintf("OPEN PRs %d", openPRs)),
 		activeStyle.Render(fmt.Sprintf("CI RUNNING %d", running)),
 		branchStyle.Render(fmt.Sprintf("CI QUEUED %d", queued)),
-		mutedStyle.Render(fmt.Sprintf("REPOSITORIES %d", len(m.repos))),
+		mutedStyle.Render(fleetLabel),
 	}
 	return fit(strings.Join(parts, mutedStyle.Render("   ·   ")), m.width)
 }
@@ -2005,7 +2083,7 @@ type inFlightItem struct {
 	RunID    int64
 }
 
-func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
+func collectInFlightItems(repos []repository, now time.Time, agentTaskSets ...map[string]agentTask) []inFlightItem {
 	var items []inFlightItem
 	for _, repo := range repos {
 		for _, item := range repo.Runs {
@@ -2041,6 +2119,9 @@ func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
 			items = append(items, inFlightItem{Priority: 2, Kind: "REVIEW", Repo: repo.FullName, Subject: fmt.Sprintf("PR #%d · %s", pr.Number, pr.Title), Detail: "Waiting on " + reviewers, Age: ageSince(now, pr.UpdatedAt), URL: pr.URL})
 		}
 	}
+	if len(agentTaskSets) > 0 {
+		items = append(items, collectAgentInFlight(agentTaskSets[0], now)...)
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
@@ -2051,7 +2132,11 @@ func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
 }
 
 func (m model) renderInFlightRows(w, h int) []string {
-	items := collectInFlightItems(m.repos, time.Now())
+	var agentTasks map[string]agentTask
+	if m.agentEventsPath != "" {
+		agentTasks = m.agentTasks
+	}
+	items := collectInFlightItems(m.repos, time.Now(), agentTasks)
 	if w < 88 {
 		rows := make([]string, 0, h)
 		for i := 0; i < min(len(items), h); i++ {
@@ -2078,10 +2163,13 @@ func (m model) renderInFlightRows(w, h int) []string {
 	for i := 0; i < min(len(items), room); i++ {
 		item := items[i]
 		style := activeStyle
-		if item.Kind == "REVIEW" {
+		if item.Kind == "REVIEW" || strings.Contains(item.Kind, "WAITING") || strings.Contains(item.Kind, "STALE") {
 			style = branchStyle
 		}
-		line := style.Render(fit(item.Kind, 10)) + " " +
+		if strings.Contains(item.Kind, "BLOCKED") {
+			style = badStyle
+		}
+		line := style.Render(fit(item.Kind, 16)) + " " +
 			titleStyle.Render(fit(shortName(item.Repo), max(10, w/4))) + " " +
 			fit(item.Subject, max(8, w/2)) + " " +
 			mutedStyle.Render(ageLabel(item.Age))
@@ -2337,24 +2425,30 @@ func (m model) renderHeader(w int) string {
 	if m.lastErr != "" {
 		status = badStyle.Render("● " + state)
 	}
+	agentNotice := m.agentRuntimeNotice()
+	agentStyle := mutedStyle
+	if m.agentLastErr != "" {
+		agentStyle = badStyle
+	}
 	if w < 70 {
 		smallState := "● SYNCING"
+		smallStyle := activeStyle
 		if !m.lastRepos.IsZero() {
 			smallState = "● CONNECTED"
+			smallStyle = goodStyle
 		}
 		if m.lastErr != "" {
 			smallState = "● STALE"
+			smallStyle = badStyle
 		}
-		return fit(titleStyle.Render("GH FLEET")+"  "+goodStyle.Render(smallState), w) + "\n" +
-			mutedStyle.Render(fit("Agent runtime: NOT CONNECTED", w))
+		return fit(titleStyle.Render("GH FLEET")+"  "+smallStyle.Render(smallState), w) + "\n" +
+			fit(agentStyle.Render(agentNotice), w)
 	}
 	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
 	login := mutedStyle.Render("  " + m.login)
 	left := fit(brand+login, max(1, w-width(status)-1))
 	gap := max(1, w-width(left)-width(status))
-	sourceNotice := "Human operations view  ·  GitHub facts only  ·  Agent runtime: NOT CONNECTED"
-	return left + strings.Repeat(" ", gap) + status + "\n" +
-		mutedStyle.Render(fit(sourceNotice, w))
+	return left + strings.Repeat(" ", gap) + status + "\n" + fit(agentStyle.Render(agentNotice), w)
 }
 
 func metric(label, value, detail string, color lipgloss.Color, w int) string {
@@ -3435,17 +3529,20 @@ func (m model) helpView() string {
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"SOURCES + FRESHNESS",
-		"  Agent runtime is not connected; the overview shows GitHub facts only.",
+		m.agentRuntimeNotice(),
 		"  Commit authors and Actions trigger actors are observed identities, not agent owners.",
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
 		"  Cached data remains visible during API outages; stale data is labelled.",
+		"  Agent events are read-only from --agent-events or GH_FLEET_AGENT_EVENTS.",
+		"  Agent telemetry is not written to the GitHub metadata cache.",
 	}
 	return box("HELP", lines, m.width-4, m.height-2, true)
 }
 
 func main() {
 	cacheFlag := flag.String("cache", "", "cache file path (default: user cache directory)")
+	agentEventsFlag := flag.String("agent-events", os.Getenv("GH_FLEET_AGENT_EVENTS"), "read-only agent JSONL event spool (or GH_FLEET_AGENT_EVENTS)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -3464,7 +3561,7 @@ func main() {
 	if cachePath == "" {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet: cache directory is unavailable; cached startup will be disabled")
 	}
-	program := tea.NewProgram(newModel(client, cachePath), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet:", err)
 		os.Exit(1)
