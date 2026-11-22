@@ -20,192 +20,44 @@ import (
 )
 
 const (
-	maxAgentSpoolBytes       = 4 << 20
-	maxAgentEventLineBytes   = 16 << 10
-	maxAgentSummaryBytes     = 240
-	maxAgentTasks            = 1000
-	maxAgentSeenEventIDs     = 20000
-	maxAgentEventAge         = 30 * 24 * time.Hour
-	agentTerminalRetention   = 24 * time.Hour
-	agentDefaultHeartbeat    = 30 * time.Second
-	agentMinimumStaleGrace   = 60 * time.Second
-	agentMinimumHeartbeatSec = 5
-	agentMaximumHeartbeatSec = 3600
-	agentPollInterval        = 5 * time.Second
+	maxAgentSpoolBytes        = 4 << 20
+	maxAgentEventLineBytes    = 16 << 10
+	maxAgentSummaryBytes      = 240
+	maxAgentTasks             = 1000
+	maxAgentSeenEventIDs      = 20000
+	maxAgentEventAge          = 30 * 24 * time.Hour
+	agentTerminalRetention    = 24 * time.Hour
+	agentDefaultHeartbeat     = 30 * time.Second
+	agentMinimumStaleGrace    = 60 * time.Second
+	agentMinimumHeartbeatSec  = 5
+	agentMaximumHeartbeatSec  = 3600
+	agentPollInterval         = 5 * time.Second
 )
 
 var (
-	agentTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"regexp"
-	"runtime"
-	"sort"
-	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
-)
-
-const (
-	maxAgentSpoolBytes       = 4 << 20
-	maxAgentEventLineBytes   = 16 << 10
-	maxAgentSummaryBytes     = 240
-	maxAgentTasks            = 1000
-	maxAgentSeenEventIDs     = 20000
-	maxAgentEventAge         = 30 * 24 * time.Hour
-	agentTerminalRetention   = 24 * time.Hour
-	agentDefaultHeartbeat    = 30 * time.Second
-	agentMinimumStaleGrace   = 60 * time.Second
-	agentMinimumHeartbeatSec = 5
-	agentMaximumHeartbeatSec = 3600
-	agentPollInterval        = 5 * time.Second
-)
-
-var (
-)
-	agentRepoPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"regexp"
-	"runtime"
-	"sort"
-	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
-)
-
-const (
-	maxAgentSpoolBytes       = 4 << 20
-	maxAgentEventLineBytes   = 16 << 10
-	maxAgentSummaryBytes     = 240
-	maxAgentTasks            = 1000
-	maxAgentSeenEventIDs     = 20000
-	maxAgentEventAge         = 30 * 24 * time.Hour
-	agentTerminalRetention   = 24 * time.Hour
-	agentDefaultHeartbeat    = 30 * time.Second
-	agentMinimumStaleGrace   = 60 * time.Second
-	agentMinimumHeartbeatSec = 5
-	agentMaximumHeartbeatSec = 3600
-	agentPollInterval        = 5 * time.Second
-)
-
-var (
-)
-	agentBranchPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"regexp"
-	"runtime"
-	"sort"
-	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
-)
-
-const (
-	maxAgentSpoolBytes       = 4 << 20
-	maxAgentEventLineBytes   = 16 << 10
-	maxAgentSummaryBytes     = 240
-	maxAgentTasks            = 1000
-	maxAgentSeenEventIDs     = 20000
-	maxAgentEventAge         = 30 * 24 * time.Hour
-	agentTerminalRetention   = 24 * time.Hour
-	agentDefaultHeartbeat    = 30 * time.Second
-	agentMinimumStaleGrace   = 60 * time.Second
-	agentMinimumHeartbeatSec = 5
-	agentMaximumHeartbeatSec = 3600
-	agentPollInterval        = 5 * time.Second
-)
-
-var (
-)
-	agentSHApattern   = regexp.MustCompile(`^[A-Fa-f0-9]{7,64}package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"os"
-	"regexp"
-	"runtime"
-	"sort"
-	"strings"
-	"time"
-	"unicode"
-	"unicode/utf8"
-
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
-)
-
-const (
-	maxAgentSpoolBytes       = 4 << 20
-	maxAgentEventLineBytes   = 16 << 10
-	maxAgentSummaryBytes     = 240
-	maxAgentTasks            = 1000
-	maxAgentSeenEventIDs     = 20000
-	maxAgentEventAge         = 30 * 24 * time.Hour
-	agentTerminalRetention   = 24 * time.Hour
-	agentDefaultHeartbeat    = 30 * time.Second
-	agentMinimumStaleGrace   = 60 * time.Second
-	agentMinimumHeartbeatSec = 5
-	agentMaximumHeartbeatSec = 3600
-	agentPollInterval        = 5 * time.Second
-)
-
-var (
-)
+	agentTokenPattern  = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+	agentRepoPattern   = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+	agentBranchPattern = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
+	agentSHAPattern    = regexp.MustCompile("^[A-Fa-f0-9]{7,64}$")
 )
 
 type agentEvent struct {
-	SchemaVersion           string          `json:"schema_version"`
-	EventID                 string          `json:"event_id"`
-	Sequence                int64           `json:"sequence,omitempty"`
-	EventType               string          `json:"event_type"`
-	OccurredAt              string          `json:"occurred_at"`
-	AgentID                 string          `json:"agent_id"`
-	TaskID                  string          `json:"task_id"`
-	Repository              string          `json:"repository"`
-	Branch                  string          `json:"branch,omitempty"`
-	CommitSHA               string          `json:"commit_sha,omitempty"`
-	PullRequest             int             `json:"pull_request,omitempty"`
-	WorkflowRunID           json.RawMessage `json:"workflow_run_id,omitempty"`
-	State                   string          `json:"state,omitempty"`
-	Reason                  string          `json:"reason,omitempty"`
-	Summary                 string          `json:"summary,omitempty"`
-	Source                  string          `json:"source"`
+	SchemaVersion            string          `json:"schema_version"`
+	EventID                  string          `json:"event_id"`
+	Sequence                 int64           `json:"sequence,omitempty"`
+	EventType                string          `json:"event_type"`
+	OccurredAt               string          `json:"occurred_at"`
+	AgentID                  string          `json:"agent_id"`
+	TaskID                   string          `json:"task_id"`
+	Repository               string          `json:"repository"`
+	Branch                   string          `json:"branch,omitempty"`
+	CommitSHA                string          `json:"commit_sha,omitempty"`
+	PullRequest              int             `json:"pull_request,omitempty"`
+	WorkflowRunID            json.RawMessage `json:"workflow_run_id,omitempty"`
+	State                    string          `json:"state,omitempty"`
+	Reason                   string          `json:"reason,omitempty"`
+	Summary                  string          `json:"summary,omitempty"`
+	Source                   string          `json:"source"`
 	HeartbeatIntervalSeconds int             `json:"heartbeat_interval_seconds,omitempty"`
 }
 
@@ -229,10 +81,10 @@ type agentTask struct {
 }
 
 type agentSpoolCursor struct {
-	Offset       int64
-	Pending      []byte
-	Info         os.FileInfo
-	Discarding   bool
+	Offset     int64
+	Pending    []byte
+	Info       os.FileInfo
+	Discarding bool
 }
 
 type agentSpoolBatch struct {
@@ -281,10 +133,7 @@ func agentStaleAfter(interval time.Duration) time.Duration {
 }
 
 func isAgentTaskStale(task agentTask, now time.Time) bool {
-	if !isAgentActive(task.State) || task.LastSignalAt.IsZero() {
-		return false
-	}
-	if task.LastSignalAt.After(now) {
+	if !isAgentActive(task.State) || task.LastSignalAt.IsZero() || task.LastSignalAt.After(now) {
 		return false
 	}
 	return now.Sub(task.LastSignalAt) > agentStaleAfter(task.HeartbeatInterval)
@@ -306,6 +155,7 @@ func sanitizeAgentSummary(value string) string {
 }
 
 func normalizeWorkflowRunID(raw json.RawMessage) (string, error) {
+	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
 	}
@@ -347,7 +197,7 @@ func validateAgentEvent(event agentEvent, now time.Time) (time.Time, string, err
 	if event.Branch != "" && (!agentBranchPattern.MatchString(event.Branch) || strings.Contains(event.Branch, "..") || strings.Contains(event.Branch, "//")) {
 		return time.Time{}, "", errors.New("branch contains unsupported characters")
 	}
-	if event.CommitSHA != "" && !agentSHApattern.MatchString(event.CommitSHA) {
+	if event.CommitSHA != "" && !agentSHAPattern.MatchString(event.CommitSHA) {
 		return time.Time{}, "", errors.New("commit_sha must be 7–64 hexadecimal characters")
 	}
 	if event.PullRequest < 0 || event.PullRequest > 100000000 {
@@ -356,11 +206,12 @@ func validateAgentEvent(event agentEvent, now time.Time) (time.Time, string, err
 	if event.Sequence < 0 {
 		return time.Time{}, "", errors.New("sequence cannot be negative")
 	}
-	if !agentTokenPattern.MatchString(strings.ReplaceAll(event.Source, "/", ":")) || len(event.Source) > 128 {
+	sourceToken := strings.ReplaceAll(event.Source, "/", ":")
+	if len(event.Source) == 0 || len(event.Source) > 128 || !agentTokenPattern.MatchString(sourceToken) {
 		return time.Time{}, "", errors.New("source is missing or invalid")
 	}
 	if event.HeartbeatIntervalSeconds != 0 &&
-		(event.HeartbeatIntervalSecond < agentMinimumHeartbeatSec || event.HeartbeatIntervalSecond > agentMaximumHeartbeatSec) {
+		(event.HeartbeatIntervalSeconds < agentMinimumHeartbeatSec || event.HeartbeatIntervalSeconds > agentMaximumHeartbeatSec) {
 		return time.Time{}, "", errors.New("heartbeat_interval_seconds must be between 5 and 3600")
 	}
 	occurredAt, err := time.Parse(time.RFC3339, event.OccurredAt)
@@ -422,6 +273,11 @@ func validateAgentEvent(event agentEvent, now time.Time) (time.Time, string, err
 	return occurredAt, workflowID, nil
 }
 
+type oldAgentTask struct {
+	key string
+	at  time.Time
+}
+
 func pruneAgentTasks(tasks map[string]agentTask, now time.Time) {
 	for key, task := range tasks {
 		if isAgentTerminal(task.State) && !task.LastEventAt.IsZero() && now.Sub(task.LastEventAt) > agentTerminalRetention {
@@ -437,7 +293,7 @@ func pruneAgentTasks(tasks map[string]agentTask, now time.Time) {
 			terminal = append(terminal, oldAgentTask{key: key, at: task.LastEventAt})
 		}
 	}
-	sortAgentOldest(terminal)
+	sort.Slice(terminal, func(i, j int) bool { return terminal[i].at.Before(terminal[j].at) })
 	for _, item := range terminal {
 		if len(tasks) <= maxAgentTasks {
 			break
@@ -446,13 +302,21 @@ func pruneAgentTasks(tasks map[string]agentTask, now time.Time) {
 	}
 }
 
-type oldAgentTask struct {
-	key string
-	at  time.Time
-}
-
-func sortAgentOldest(items []oldAgentTask) {
-	sort.Slice(items, func(i, j int) bool { return items[i].at.Before(items[j].at) })
+func validateAgentTransition(task agentTask, eventType, newState string) error {
+	if eventType == "agent.heartbeat" {
+		return nil
+	}
+	if eventType == "agent.started" {
+		return errors.New("agent.started is only valid for a new task_id")
+	}
+	switch task.State {
+	case "starting", "working", "waiting", "blocked":
+		switch newState {
+		case "working", "waiting", "blocked", "completed", "failed", "cancelled":
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid lifecycle transition from %s to %s", task.State, newState)
 }
 
 func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenOrder *[]string, event agentEvent, now time.Time) error {
@@ -469,10 +333,10 @@ func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenO
 	if !exists && event.EventType != "agent.started" {
 		return errors.New("task must begin with agent.started")
 	}
-	if exists && isAgentTerminal(task.State) {
-		return errors.New("terminal task cannot be changed; use a new task_id for retries")
-	}
 	if exists {
+		if err := validateAgentTransition(task, event.EventType, event.State); err != nil {
+			return err
+		}
 		if event.Sequence > 0 && task.HasSequence && event.Sequence <= task.Sequence {
 			return errors.New("sequence is not newer than the last accepted event")
 		}
@@ -483,7 +347,11 @@ func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenO
 			return errors.New("repository cannot change within a task")
 		}
 	}
-	interval := time.Duration(event.HeartbeatIntervalSecond) * time.Second
+
+	interval := time.Duration(event.HeartbeatIntervalSeconds) * time.Second
+	if interval == 0 && exists {
+		interval = task.HeartbeatInterval
+	}
 	if interval == 0 {
 		interval = agentDefaultHeartbeat
 	}
@@ -693,7 +561,7 @@ func collectAgentInFlight(tasks map[string]agentTask, now time.Time) []inFlightI
 		case "waiting":
 			kind, priority = "AGENT WAITING", 1
 		case "blocked":
-			kind, priority = "AGENT BLOCKED", 2
+			continue
 		}
 		detail := "agent " + task.AgentID + " · task " + task.TaskID
 		if task.Reason != "" {
@@ -702,12 +570,22 @@ func collectAgentInFlight(tasks map[string]agentTask, now time.Time) []inFlightI
 		if task.Summary != "" {
 			detail += " · " + task.Summary
 		}
+		if task.Source != "" {
+			detail += " · " + task.Source
+		}
+		if task.WorkflowRunID != "" {
+			detail += " · workflow #" + task.WorkflowRunID
+		}
 		if isAgentTaskStale(task, now) {
 			kind, priority = "AGENT STALE", 3
 		}
+		age := time.Duration(0)
+		if !task.LastSignalAt.IsZero() && now.After(task.LastSignalAt) {
+			age = now.Sub(task.LastSignalAt)
+		}
 		items = append(items, inFlightItem{
 			Priority: priority, Kind: kind, Repo: task.Repository,
-			Subject: task.TaskID, Detail: detail, Age: now.Sub(task.LastSignalAt),
+			Subject: task.TaskID, Detail: detail, Age: age,
 		})
 	}
 	return items
@@ -724,4 +602,22 @@ func countAgentTasks(tasks map[string]agentTask, now time.Time) (active, stale i
 		}
 	}
 	return active, stale
+}
+
+func (m model) agentRuntimeNotice() string {
+	if m.agentEventsPath == "" {
+		return "Agent runtime: NOT CONNECTED"
+	}
+	if m.agentLastErr != "" {
+		return "Agent runtime: SOURCE UNAVAILABLE · check spool path and permissions"
+	}
+	if m.lastAgentPoll.IsZero() || m.busyAgentPoll {
+		return "Agent runtime: CONNECTING"
+	}
+	active, stale := countAgentTasks(m.agentTasks, time.Now())
+	notice := fmt.Sprintf("Agent runtime: CONNECTED · %d active · %d stale", active, stale)
+	if m.agentRejected > 0 {
+		notice += fmt.Sprintf(" · %d rejected events", m.agentRejected)
+	}
+	return notice
 }
