@@ -1849,16 +1849,13 @@ func ciStyle(state string) lipgloss.Style {
 	}
 }
 func repoCI(repo repository) string {
-	running, waiting, failed := 0, 0, 0
+	running, waiting := 0, 0
 	for _, item := range repo.Runs {
 		if item.Status == "in_progress" {
 			running++
 		}
 		if queuedRun(item) {
 			waiting++
-		}
-		if item.Status == "completed" && item.Conclusion == "failure" && time.Since(parseTime(item.UpdatedAt)) < 24*time.Hour {
-			failed++
 		}
 	}
 	switch {
@@ -1868,11 +1865,16 @@ func repoCI(repo repository) string {
 		return fmt.Sprintf("%d RUNNING", running)
 	case waiting > 0:
 		return fmt.Sprintf("%d WAITING", waiting)
-	case failed > 0:
-		return fmt.Sprintf("%d FAILED", failed)
 	}
-	if lr := latestRun(repo); lr != nil && lr.Conclusion == "success" {
-		return "✓ OK"
+	if latest := latestRun(repo); latest != nil {
+		switch latest.Conclusion {
+		case "success":
+			return "✓ OK"
+		case "failure":
+			if time.Since(parseTime(latest.UpdatedAt)) <= 24*time.Hour {
+				return "FAILED"
+			}
+		}
 	}
 	return "—"
 }
