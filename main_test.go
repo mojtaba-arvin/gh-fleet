@@ -30,6 +30,30 @@ func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
 	}
 }
 
+func TestNarrowDefaultDashboardShowsCommitChartsImmediately(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width: 80,
+		height: 30,
+		repos: []repository{{
+			FullName:       "acme/active",
+			Name:           "active",
+			Default:        "main",
+			CommitsFetched: now,
+			Commits: []commitInfo{
+				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
+				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339)},
+			},
+		}},
+	}
+	view := m.narrowView()
+	for _, want := range []string{"OVERVIEW", "2 commits", "REPOSITORIES", "█"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("narrow default dashboard does not contain %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestRunningRunsCountsOnlyInProgress(t *testing.T) {
 	repo := repository{Runs: []run{
 		{Status: "in_progress"},
