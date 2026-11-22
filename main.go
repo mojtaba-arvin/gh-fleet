@@ -2102,7 +2102,6 @@ func (m model) overviewView() string {
 	tabs := m.renderTabs(w)
 	summary := m.renderOverviewSummary()
 	footer := m.renderFooter(w)
-	contentH := max(5, h-7)
 	if w >= 108 && h >= 17 {
 		bodyH := max(5, h-6)
 		gap := 1
