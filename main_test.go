@@ -47,7 +47,7 @@ func TestNarrowDashboardShowsOperationalRepositoryWorkload(t *testing.T) {
 		}},
 	}
 	view := m.narrowView()
-	for _, want := range []string{"Repositories", "active", "agent-one", "2/2"} {
+	for _, want := range []string{"Repositories", "active", "~1", "2/2"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("narrow operations dashboard does not contain %q:\n%s", want, view)
 		}
