@@ -16,7 +16,7 @@ The default screen is a human-oriented command center. It puts work that may nee
 
 The first screen does not rank repositories or people by commit volume. The optional `a` diagnostic view groups GitHub-observed identities; it does not establish whether an identity is a person, bot, or coding agent.
 
-See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the information architecture, state rules, layout, keyboard model, accessibility, and acceptance criteria.
+See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the information architecture, state rules, layout, keyboard model, accessibility, and acceptance criteria. See [UX research and interaction decisions](docs/UX_RESEARCH.md) for the comparative review and rationale behind the keyboard model.
 
 ## What the dashboard can and cannot know
 
