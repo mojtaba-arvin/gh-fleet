@@ -1082,6 +1082,16 @@ func runPriority(r run) int {
 	return 2
 }
 func isActive(r run) bool { return r.Status != "completed" && r.Status != "" }
+
+func runningRuns(r repository) int {
+	n := 0
+	for _, item := range r.Runs {
+		if item.Status == "in_progress" {
+			n++
+		}
+	}
+	return n
+}
 func runState(r run) string {
 	if isActive(r) {
 		return r.Status
@@ -1390,8 +1400,8 @@ func countFmt(n int) string {
 func (m model) renderRepos(w, h int) []string {
 	rows := m.visibleRepos()
 	content := make([]string, 0, h)
-	nameW := max(8, w-23)
-	header := fmt.Sprintf("%-*s %4s %3s %3s %5s", nameW, "REPOSITORY", "BR", "PR", "IS", "CI")
+	nameW := max(8, w-28)
+	header := fmt.Sprintf("%-*s %4s %3s %3s %4s %5s", nameW, "REPOSITORY", "BR", "PR", "IS", "RUN", "CI")
 	content = append(content, mutedStyle.Render(fit(header, w)))
 	room := max(0, h-1)
 	if len(rows) == 0 {
@@ -1410,7 +1420,12 @@ func (m model) renderRepos(w, h int) []string {
 			ci = compactCI(*lr)
 			cistyle = stateStyle(*lr)
 		}
-		line := fmt.Sprintf("%-*s %4s %3s %3s ", nameW, fit(m.repoLabel(r), nameW), countFmt(r.BranchN), countFmt(r.PRs), countFmt(r.Issues)) + cistyle.Render(fit(ci, 5))
+		running := runningRuns(*r)
+		runStyle := mutedStyle
+		if running > 0 {
+			runStyle = activeStyle
+		}
+		line := fmt.Sprintf("%-*s %4s %3s %3s ", nameW, fit(m.repoLabel(r), nameW), countFmt(r.BranchN), countFmt(r.PRs), countFmt(r.Issues)) + runStyle.Render(fit(countFmt(running), 4)) + " " + cistyle.Render(fit(ci, 5))
 		if i == m.cursor {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
