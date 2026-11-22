@@ -39,10 +39,10 @@ const (
 var version = "dev"
 
 type branch struct {
-	Name    string       `json:"name"`
-	SHA     string       `json:"sha"`
-	Date    string       `json:"date"`
-	Msg     string       `json:"message"`
+	Name             string       `json:"name"`
+	SHA              string       `json:"sha"`
+	Date             string       `json:"date"`
+	Msg              string       `json:"message"`
 	History          []commitInfo `json:"history"`
 	HistoryTruncated bool         `json:"history_truncated,omitempty"`
 }
@@ -1825,9 +1825,9 @@ func countFmt(n int) string {
 func (m model) renderRepos(w, h int) []string {
 	rows := m.visibleRepos()
 	content := make([]string, 0, h)
-	nameW := max(10, w/4)
-	workW, trendW, peopleW, branchW, ciW, prW := 14, 7, 6, 4, 12, 4
-	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H/7D/30D", trendW, "TREND", peopleW, "PEOPLE", branchW, "BR", ciW, "CI", prW, "PR")
+	nameW := max(10, w/5)
+	workW, trendW, peopleW, branchW, ciW, prW := 14, 7, 5, 3, 10, 3
+	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H/7D/30D", trendW, "TREND", peopleW, "PPL", branchW, "BR", ciW, "CI", prW, "PR")
 	content = append(content, mutedStyle.Render(fit(header, w)))
 	room := max(0, h-1)
 	if len(rows) == 0 {
@@ -1923,7 +1923,7 @@ func commitActor(item commitInfo) string {
 }
 
 func repoWorkload(repo repository, now time.Time) repoWork {
-	out := repoWork{Daily: make([]int, 7)}
+	out := repoWork{Daily: make([]int, 7), ActivitySampled: repo.CommitHistoryDays < activityHistoryDays || repo.BranchHistoryDays < activityHistoryDays}
 	actors := map[string]bool{}
 	activeBranches := map[string]bool{}
 	for _, br := range repo.Branches {
