@@ -80,7 +80,6 @@ func TestOverviewPanelsCanBeFocusedAndNavigated(t *testing.T) {
 				URL: "https://github.com/acme/ops/pull/22",
 			}},
 		}},
-		},
 	}
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
