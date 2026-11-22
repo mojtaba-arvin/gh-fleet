@@ -65,18 +65,18 @@ type run struct {
 }
 
 type repository struct {
-	FullName        string    `json:"full_name"`
-	Name            string    `json:"name"`
-	URL             string    `json:"url"`
-	Private         bool      `json:"private"`
-	Fork            bool      `json:"fork"`
-	Stars           int       `json:"stars"`
-	Forks           int       `json:"forks"`
-	PushedAt        string    `json:"pushed_at"`
-	Default         string    `json:"default_branch"`
-	PRs             int       `json:"open_prs"`
-	Issues          int       `json:"open_issues"`
-	BranchN         int       `json:"branch_count"`
+	FullName        string       `json:"full_name"`
+	Name            string       `json:"name"`
+	URL             string       `json:"url"`
+	Private         bool         `json:"private"`
+	Fork            bool         `json:"fork"`
+	Stars           int          `json:"stars"`
+	Forks           int          `json:"forks"`
+	PushedAt        string       `json:"pushed_at"`
+	Default         string       `json:"default_branch"`
+	PRs             int          `json:"open_prs"`
+	Issues          int          `json:"open_issues"`
+	BranchN         int          `json:"branch_count"`
 	Branches        []branch     `json:"branches"`
 	Commits         []commitInfo `json:"commits,omitempty"`
 	Runs            []run        `json:"runs"`
@@ -407,13 +407,13 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 		return nil, err
 	}
 	var data []struct {
-		SHA string `json:"sha"`
+		SHA    string `json:"sha"`
 		Commit struct {
 			Committer struct {
 				Date string `json:"date"`
 			} `json:"committer"`
 			Message string `json:"message"`
-			Author struct {
+			Author  struct {
 				Name string `json:"name"`
 			} `json:"author"`
 		} `json:"commit"`
