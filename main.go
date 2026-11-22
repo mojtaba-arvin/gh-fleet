@@ -870,7 +870,7 @@ func saveCache(m model) {
 }
 func newModel(client *apiClient, cachePath string, agentEventPaths ...string) model {
 	agentEventsPath := os.Getenv("GH_FLEET_AGENT_EVENTS")
-	if len(agentEventPaths) > 0 && agentEventPaths[0] != "" {
+	if len(agentEventPaths) > 0 {
 		agentEventsPath = agentEventPaths[0]
 	}
 	c := loadCache(cachePath)
@@ -1950,7 +1950,9 @@ func attentionStyle(kind string) lipgloss.Style {
 func (m model) attentionItems() []attentionItem {
 	now := time.Now()
 	items := collectAttentionItems(m.repos, now)
-	items = append(items, collectAgentAttentionItems(m.agentTasks, now)...)
+	if m.agentEventsPath != "" {
+		items = append(items, collectAgentAttentionItems(m.agentTasks, now)...)
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
@@ -2123,7 +2125,11 @@ func collectInFlightItems(repos []repository, now time.Time, agentTaskSets ...ma
 }
 
 func (m model) renderInFlightRows(w, h int) []string {
-	items := collectInFlightItems(m.repos, time.Now(), m.agentTasks)
+	var agentTasks map[string]agentTask
+	if m.agentEventsPath != "" {
+		agentTasks = m.agentTasks
+	}
+	items := collectInFlightItems(m.repos, time.Now(), agentTasks)
 	if w < 88 {
 		rows := make([]string, 0, h)
 		for i := 0; i < min(len(items), h); i++ {
@@ -2156,7 +2162,7 @@ func (m model) renderInFlightRows(w, h int) []string {
 		if strings.Contains(item.Kind, "BLOCKED") {
 			style = badStyle
 		}
-		line := style.Render(fit(item.Kind, 10)) + " " +
+		line := style.Render(fit(item.Kind, 16)) + " " +
 			titleStyle.Render(fit(shortName(item.Repo), max(10, w/4))) + " " +
 			fit(item.Subject, max(8, w/2)) + " " +
 			mutedStyle.Render(ageLabel(item.Age))
