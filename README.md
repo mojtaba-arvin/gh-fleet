@@ -88,6 +88,18 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 
 Press `r` for an immediate refresh. For multi-machine, near-real-time agent status, use an authenticated event relay; a GitHub-only terminal client cannot observe work that has not produced a GitHub event.
 
+## Agent runtime telemetry (optional)
+
+The default GitHub-only mode remains unchanged. To display real runner-reported task state, configure the local JSONL event spool described in [Agent telemetry](docs/AGENT_TELEMETRY.md):
+
+    mkdir -p "$HOME/.cache/gh-fleet"
+    chmod 700 "$HOME/.cache/gh-fleet"
+    touch "$HOME/.cache/gh-fleet/agent-events.jsonl"
+    chmod 600 "$HOME/.cache/gh-fleet/agent-events.jsonl"
+    gh-fleet --agent-events "$HOME/.cache/gh-fleet/agent-events.jsonl"
+
+Alternatively set `GH_FLEET_AGENT_EVENTS`. The CLI flag takes precedence. The runner/orchestrator appends the documented lifecycle events; gh-fleet reads them every five seconds and never sends commands to agents. The file is local, read-only to gh-fleet, capped at 4 MiB, and is not copied into the GitHub metadata cache. Keep prompts, model reasoning, tool arguments/results, file contents, environment variables, and secrets out of the event stream.
+
 ## Data and privacy
 
 gh-fleet calls the GitHub API directly. It obtains the active github.com token by running gh auth token; it does not write or print that token. The token is not included in the cache.
