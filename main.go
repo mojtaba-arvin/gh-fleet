@@ -1798,9 +1798,9 @@ func (m model) commitChartsView() string {
 		mutedStyle.Render(periodLabel)
 	if period == 7 {
 		selector = titleStyle.Render("COMMIT TRENDS") + "   " +
-		mutedStyle.Render("1 · 24H") + " " +
-		selectStyle.Render("  2 · 7D  ") + "   " +
-		mutedStyle.Render(periodLabel)
+			mutedStyle.Render("1 · 24H") + " " +
+			selectStyle.Render("  2 · 7D  ") + "   " +
+			mutedStyle.Render(periodLabel)
 	}
 	repos := m.chartRepos()
 	if len(repos) == 0 {
