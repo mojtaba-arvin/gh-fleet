@@ -25,23 +25,40 @@ Do not infer a live agent from a commit author, workflow actor, branch name, or 
 
 ## Information architecture
 
-### 1. Command center (default)
+### 1. Overview (default)
 
-A compact top status strip should show:
+The first screen is designed for a human operator, not as an agent activity chart. Its questions are:
 
-- Agents: active / waiting / stale / failed
-- Work: in progress / awaiting CI / awaiting review / blocked
-- CI: running / queued / failed
-- Attention: count of items requiring operator action
-- Data freshness and source health
+- What needs a human decision now?
+- What is progressing or waiting?
+- Which repository, PR, or workflow is involved?
+- What is the next action?
 
-Below it, use two high-value work queues.
+The screen contains:
+- a source/freshness header, including an explicit "Agent runtime: not connected" state until runner telemetry exists;
+- a small summary strip for actionable items, open PRs, running CI, queued CI, and repository count;
+- a prioritized **Needs attention** list with a concrete GitHub fact, age, next action, and destination;
+- an **In flight / waiting** list for current CI and explicitly requested PR reviews.
 
-**Needs attention** comes first and includes failed agents, failed CI, stale heartbeats, unresolved blockers, and human approval requests. Every item explains why it is here and links to the relevant detail.
+The initial attention rules are recent CI failure, changes requested, review required without a requested reviewer, reported dirty merge state, queued CI older than 15 minutes, running CI older than 45 minutes, and requested review without an update for 72 hours. These are inspection cues, not diagnoses that a process is stuck or an SLA violation. Draft PRs are excluded from review-ready attention.
 
-**Active work** shows one row/card per agent task, not merely one row per repository. Fields: agent identity, short task title, repository, branch, linked PR, lifecycle state, current step/tool category (if supplied), elapsed time, last heartbeat, and CI/review dependency.
+### 2. Repositories
 
-A repository can have multiple agents and tasks. Keep agent/task identity distinct from repository identity.
+The portfolio view has one row per repository, sorted by operational need rather than commit count. Each row shows a plain-language state, open PR and issue counts, last push age, and latest CI signal.
+
+Repository detail shows the latest ten open PRs and their review decision / requested reviewers, current CI context, and links to GitHub. Additional PRs remain included in the total count; the detail view marks when its ten-item sample is truncated.
+
+### 3. CI queue
+
+The CI queue separates running, queued, and recent failed workflows. It shows workflow, repository, branch, trigger actor, update age, and log access. A trigger actor is never treated as an agent owner. Successful historical runs remain out of the urgent queue.
+
+### 4. GitHub identities
+
+An optional diagnostic view groups commit authors and Actions trigger actors. It is not a workload score and does not infer human-versus-agent identity. It is explicitly labelled as observed GitHub identities.
+
+### 5. Timeline / event feed
+
+A future timeline may show meaningful GitHub and orchestrator events, but only when event ordering, correlation, and source freshness can be represented accurately. Do not stream every commit or tool event into the operator's primary view.
 
 ### 2. Agents
 
