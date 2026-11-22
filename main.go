@@ -19,11 +19,11 @@ import (
 	"sync"
 	"time"
 
+	ntTimeseries "github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
+	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	ntTimeseries "github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
-	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 )
 
 const (
