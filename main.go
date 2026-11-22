@@ -1669,7 +1669,8 @@ func (m model) renderCommitChart(w, h int) []string {
 		return []string{mutedStyle.Render("Waiting for repository history…")}
 	}
 	chartW := min(24, max(10, w-4))
-	for _, repo := range repos {
+	visibleRepos := min(len(repos), max(1, h/3))
+	for _, repo := range repos[:visibleRepos] {
 		values := repoCommitBuckets(*repo, now, 24)
 		maxBucket := maxInt(values)
 		chart := ntSparkline.New(chartW, 2,
@@ -1679,7 +1680,11 @@ func (m model) renderCommitChart(w, h int) []string {
 		chart.PushAll(intsToFloats(values))
 		chart.DrawColumnsOnly()
 		name := fit(m.repoLabel(repo), max(8, w-chartW-15))
-		content = append(content, titleStyle.Render(name)+mutedStyle.Render(fmt.Sprintf(" %d / 24h", sumInts(values))))
+		label := fmt.Sprintf(" %d / 24h", sumInts(values))
+		if repo.CommitsFetched.IsZero() {
+			label += " · loading"
+		}
+		content = append(content, titleStyle.Render(name)+mutedStyle.Render(label))
 		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
 		if len(content) >= h {
 			break
@@ -1794,7 +1799,7 @@ func (m model) commitChartsView() string {
 	}
 	chartH := min(8, max(6, h/4))
 	cardH := chartH + 4
-	visible := max(1, (h-6)/(cardH+1))
+	visible := max(1, (h-7)/(cardH+1))
 	maxStart := max(0, len(repos)-visible)
 	startIndex := min(m.chartScroll, maxStart)
 	endIndex := min(len(repos), startIndex+visible)
