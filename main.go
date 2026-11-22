@@ -1062,13 +1062,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.focus {
 			case 0:
 				if m.overviewPane == 1 {
-					if item := m.selectedInFlight(); item != nil {
-						if item.RunID != 0 {
-							return m, m.openRunLogs(item.Repo, item.RunID)
-						}
-						if item.URL != "" {
-							_ = openURL(item.URL)
-						}
+					if item := m.selectedInFlight(); item != nil && item.URL != "" {
+						_ = openURL(item.URL)
 					}
 				} else if item := m.selectedAttention(); item != nil && item.URL != "" {
 					_ = openURL(item.URL)
@@ -3514,7 +3509,7 @@ func (m model) renderFooter(w int) string {
 		if m.overviewPane == 0 {
 			left = "↑↓ attention · → in flight · Enter open · l logs · 1–3 views · ? help"
 		} else {
-			left = "↑↓ in flight · ← attention · Enter logs/open · o browser · 1–3 views · ? help"
+			left = "↑↓ in flight · ← attention · Enter open · l logs · o browser · 1–3 views · ? help"
 		}
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · o browser · r refresh · 1–3 views · ? help"
@@ -3530,7 +3525,7 @@ func (m model) renderFooter(w int) string {
 			if m.overviewPane == 0 {
 				left = "↑↓ attention · → waiting · Enter open · ? help"
 			} else {
-				left = "↑↓ waiting · ← attention · Enter logs/open · ? help"
+				left = "↑↓ waiting · ← attention · Enter open · l logs · ? help"
 			}
 		case 1:
 			left = "↑↓ select · Enter detail/open · Esc back"
