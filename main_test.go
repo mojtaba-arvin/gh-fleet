@@ -30,26 +30,26 @@ func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
 	}
 }
 
-func TestNarrowDefaultDashboardShowsCommitChartsImmediately(t *testing.T) {
+func TestNarrowDashboardShowsOperationalRepositoryWorkload(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width:  80,
-		height: 30,
+		width: 80, height: 30,
 		repos: []repository{{
-			FullName:       "acme/active",
-			Name:           "active",
-			Default:        "main",
+			FullName: "acme/active", Name: "active", Default: "main",
 			CommitsFetched: now,
 			Commits: []commitInfo{
-				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
-				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339)},
+				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339), AuthorLogin: "agent-one"},
+				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339), AuthorLogin: "agent-one"},
 			},
+			Runs: []run{{Status: "in_progress", Actor: struct {
+				Login string `json:"login"`
+			}{Login: "agent-two"}}},
 		}},
 	}
 	view := m.narrowView()
-	for _, want := range []string{"OVERVIEW", "2 commits", "REPOSITORIES", "█"} {
+	for _, want := range []string{"Repositories", "active", "agent-one", "2/2"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("narrow default dashboard does not contain %q:\n%s", want, view)
+			t.Errorf("narrow operations dashboard does not contain %q:\n%s", want, view)
 		}
 	}
 }
@@ -145,55 +145,123 @@ func TestScaledBarUnitsPreserveSmallNonZeroActivity(t *testing.T) {
 	}
 }
 
-func TestCalendarHeatmapRowsRendersFullYearAndMonthLabels(t *testing.T) {
+func TestRepoWorkloadCountsUniqueCommitsAndAttributesActors(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
-	repo := repository{FullName: "acme/calendar", Commits: []commitInfo{
-		{SHA: "a", Date: "2026-11-22T10:00:00Z"},
-		{SHA: "b", Date: "2026-11-22T11:00:00Z"},
-		{SHA: "c", Date: "2026-03-10T11:00:00Z"},
-		{SHA: "old", Date: "2025-10-01T11:00:00Z"},
-	}}
-	rows := calendarHeatmapRows(repo, now, 53)
-	if len(rows) != 8 {
-		t.Fatalf("calendar rows = %d, want 8", len(rows))
+	repo := repository{
+		FullName: "acme/ops",
+		Commits: []commitInfo{
+			{SHA: "a", Date: "2026-11-22T11:00:00Z", AuthorLogin: "agent-a"},
+			{SHA: "a", Date: "2026-11-22T11:00:00Z", AuthorLogin: "agent-a"},
+			{SHA: "b", Date: "2026-11-20T11:00:00Z", AuthorLogin: "agent-b"},
+			{SHA: "old", Date: "2026-11-10T11:00:00Z", AuthorLogin: "old-agent"},
+		},
+		Runs: []run{{Status: "in_progress", UpdatedAt: now.Format(time.RFC3339), Actor: struct {
+			Login string `json:"login"`
+		}{Login: "ci-actor"}}},
 	}
-	if !strings.Contains(rows[0], "Jan") || !strings.Contains(rows[0], "Nov") {
-		t.Fatalf("month labels missing: %q", rows[0])
+	got := repoWorkload(repo, now)
+	if got.Commits24h != 1 || got.Commits7d != 2 {
+		t.Fatalf("commit totals = %d/%d, want 1/2", got.Commits24h, got.Commits7d)
 	}
-	for i, row := range rows[1:] {
-		if width(row) != 53 {
-			t.Errorf("row %d width = %d, want 53", i, width(row))
-		}
+	if strings.Join(got.Actors, ",") != "agent-a,agent-b,ci-actor" {
+		t.Fatalf("actors = %v", got.Actors)
 	}
 }
 
-func TestChartReposRanksEveryActiveYearRepository(t *testing.T) {
-	now := time.Now().UTC()
-	m := model{commitPeriod: 365, repos: []repository{
-		{
-			FullName: "acme/quiet",
-			Name:     "quiet",
-			Commits:  []commitInfo{{SHA: "q", Date: now.Add(-time.Hour).Format(time.RFC3339)}},
+func TestRepoCISeparatesRunningWaitingAndFailure(t *testing.T) {
+	repo := repository{Runs: []run{
+		{Status: "in_progress"},
+		{Status: "queued"},
+		{Status: "completed", Conclusion: "failure", UpdatedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)},
+	}}
+	if got := repoCI(repo); got != "1 RUN · 1 WAIT" {
+		t.Fatalf("repoCI() = %q, want running and waiting counts", got)
+	}
+	if !queuedRun(run{Status: "waiting"}) || queuedRun(run{Status: "completed"}) {
+		t.Fatal("queuedRun does not distinguish waiting from completed")
+	}
+}
+
+func TestVisibleRunsShowsOperationalQueueAndRecentFailuresOnly(t *testing.T) {
+	now := time.Now()
+	m := model{repos: []repository{{FullName: "acme/ops", Name: "ops", Runs: []run{
+		{ID: 1, Status: "completed", Conclusion: "success", UpdatedAt: now.Format(time.RFC3339)},
+		{ID: 2, Status: "queued", UpdatedAt: now.Format(time.RFC3339)},
+		{ID: 3, Status: "in_progress", UpdatedAt: now.Format(time.RFC3339)},
+		{ID: 4, Status: "completed", Conclusion: "failure", UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)},
+	}}}}
+	got := m.visibleRuns()
+	if len(got) != 3 {
+		t.Fatalf("visible runs = %d, want 3", len(got))
+	}
+	if got[0].item.ID != 3 || got[1].item.ID != 2 || got[2].item.ID != 4 {
+		t.Fatalf("operational queue order = %d, %d, %d", got[0].item.ID, got[1].item.ID, got[2].item.ID)
+	}
+}
+
+func TestAgentWorkloadCombinesCommitAndCIAttribution(t *testing.T) {
+	now := time.Now()
+	repos := []repository{{FullName: "acme/one", Name: "one",
+		Commits: []commitInfo{{SHA: "a", Date: now.Add(-time.Hour).Format(time.RFC3339), AuthorLogin: "agent-a"}},
+		Runs: []run{{Status: "in_progress", UpdatedAt: now.Format(time.RFC3339), Actor: struct {
+			Login string `json:"login"`
+		}{Login: "agent-b"}}},
+	}}
+	got := collectAgentWorkload(repos, now)
+	if len(got) != 2 {
+		t.Fatalf("actors = %d, want 2", len(got))
+	}
+	found := map[string]agentWorkload{}
+	for _, item := range got {
+		found[item.Name] = item
+	}
+	if found["agent-a"].Commits7d != 1 || found["agent-b"].Running != 1 {
+		t.Fatalf("agent workload attribution incorrect: %+v", got)
+	}
+}
+
+func TestRepoWorkloadIncludesFeatureBranchCommitsAndDeduplicates(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{
+		FullName: "acme/ops",
+		Default:  "main",
+		Commits: []commitInfo{
+			{SHA: "shared", Date: "2026-11-22T10:00:00Z", AuthorLogin: "agent-main"},
 		},
-		{
-			FullName: "acme/busy",
-			Name:     "busy",
-			Commits: []commitInfo{
-				{SHA: "b1", Date: now.Add(-time.Hour).Format(time.RFC3339)},
-				{SHA: "b2", Date: now.Add(-30 * time.Minute).Format(time.RFC3339)},
+		Branches: []branch{
+			{
+				Name: "feature/search",
+				History: []commitInfo{
+					{SHA: "shared", Date: "2026-11-22T10:00:00Z", AuthorLogin: "agent-main"},
+					{SHA: "feature-1", Date: "2026-11-22T11:00:00Z", AuthorLogin: "agent-feature"},
+				},
+			},
+			{
+				Name: "agent/worker",
+				History: []commitInfo{
+					{SHA: "worker-1", Date: "2026-11-21T11:00:00Z", AuthorLogin: "agent-worker"},
+				},
 			},
 		},
-		{
-			FullName: "acme/inactive",
-			Name:     "inactive",
-			Commits:  []commitInfo{{SHA: "old", Date: now.AddDate(-2, 0, 0).Format(time.RFC3339)}},
-		},
-	}}
-	got := m.chartRepos()
-	if len(got) != 2 {
-		t.Fatalf("active yearly repositories = %d, want 2", len(got))
 	}
-	if got[0].FullName != "acme/busy" {
-		t.Fatalf("first ranked repo = %s, want acme/busy", got[0].FullName)
+	got := repoWorkload(repo, now)
+	if got.Commits24h != 2 || got.Commits7d != 3 {
+		t.Fatalf("branch-aware commit totals = %d/%d, want 2/3", got.Commits24h, got.Commits7d)
+	}
+	if strings.Join(got.Actors, ",") != "agent-feature,agent-main,agent-worker" {
+		t.Fatalf("branch-aware actors = %v", got.Actors)
+	}
+	activities := repoCommitActivity(repo, now)
+	if len(activities) != 3 {
+		t.Fatalf("unique branch commit activities = %d, want 3", len(activities))
+	}
+	foundFeatureBranch := false
+	for _, item := range activities {
+		if item.Commit.SHA == "feature-1" && item.Branch == "feature/search" {
+			foundFeatureBranch = true
+		}
+	}
+	if !foundFeatureBranch {
+		t.Fatal("feature branch commit was not attributed to its branch")
 	}
 }
