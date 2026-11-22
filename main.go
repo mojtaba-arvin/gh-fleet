@@ -1649,6 +1649,7 @@ func metric(label, value, detail string, color lipgloss.Color, w int) string {
 func (m model) renderMetrics(w int) string {
 	var active, running, waiting, failed, commits30d int
 	contributors := map[string]bool{}
+	partialActivity := false
 	now := time.Now()
 	for _, repo := range m.repos {
 		if m.detail {
@@ -1659,6 +1660,7 @@ func (m model) renderMetrics(w int) string {
 		}
 		work := repoWorkload(repo, now)
 		commits30d += work.Commits30d
+		partialActivity = partialActivity || work.ActivitySampled
 		for _, actor := range work.Actors {
 			contributors[actor] = true
 		}
@@ -1705,11 +1707,15 @@ func (m model) renderMetrics(w int) string {
 			}
 		}
 	}
+	activityPrefix := ""
+	if partialActivity {
+		activityPrefix = "~"
+	}
 	items := []string{
 		metric("REPOSITORIES", strconv.Itoa(repoCount), "monitored", cyan, cw),
 		metric("ACTIVE REPOS", strconv.Itoa(active), "activity or CI · 7d", purple, cw),
-		metric("COMMITS · 30D", countFmt(commits30d), fmt.Sprintf("%d/%d repos covered", coverage, repoCount), blue, cw),
-		metric("CONTRIBUTORS", countFmt(len(contributors)), "unique commit authors · 30d", cyan, cw),
+		metric("COMMITS · 30D", activityPrefix+countFmt(commits30d), fmt.Sprintf("%d/%d repos covered", coverage, repoCount), blue, cw),
+		metric("CONTRIBUTORS", activityPrefix+countFmt(len(contributors)), "unique commit authors · 30d", cyan, cw),
 		metric("CI · RUN / WAIT", fmt.Sprintf("%d / %d", running, waiting), fmt.Sprintf("%d failures · 24h", failed), ciColor, cw),
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithSpaces(items, 1)...)
