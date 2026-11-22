@@ -25,7 +25,7 @@ Commit counts combine the full seven-day default-branch history with up to ten r
 
 - GitHub CLI (`gh`) installed and authenticated with `gh auth login`.
 - Go 1.24 or newer to build or install from source.
-- A terminal with at least 90 columns for the full dashboard. Smaller terminals use focused tabs.
+- A terminal with at least 110 columns for the full dashboard. Smaller terminals use focused tabs.
 
 The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor.
 
