@@ -200,6 +200,9 @@ func TestAgentStalenessUsesThreeHeartbeatIntervalsWithMinimumGrace(t *testing.T)
 
 func TestReadAgentSpoolWaitsForCompleteLineAndReadsIncrementally(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "agent-events.jsonl")
 	event := agentTestEvent(time.Now().UTC().Truncate(time.Second), "evt-start", "agent.started", "starting", 1)
 	raw, err := json.Marshal(event)
@@ -250,6 +253,9 @@ func TestReadAgentSpoolWaitsForCompleteLineAndReadsIncrementally(t *testing.T) {
 
 func TestReadAgentSpoolResetsAfterTruncation(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "agent-events.jsonl")
 	now := time.Now().UTC().Truncate(time.Second)
 	start := agentTestEvent(now, "evt-start", "agent.started", "starting", 1)
@@ -289,6 +295,9 @@ func TestReadAgentSpoolRejectsSymlinksAndPermissiveFiles(t *testing.T) {
 		t.Skip("Unix permission and symlink semantics are tested on Unix")
 	}
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(dir, "target.jsonl")
 	if err := os.WriteFile(target, []byte{}, 0600); err != nil {
 		t.Fatal(err)
@@ -309,7 +318,11 @@ func TestReadAgentSpoolRejectsSymlinksAndPermissiveFiles(t *testing.T) {
 }
 
 func TestReadAgentSpoolRejectsOversizedInput(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "agent-events.jsonl")
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "agent-events.jsonl")
 	data := make([]byte, maxAgentSpoolBytes+1)
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
