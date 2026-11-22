@@ -506,3 +506,23 @@ func TestShortTerminalOverviewDoesNotOverflowHeight(t *testing.T) {
 		}
 	}
 }
+
+
+func TestIncompletePullRequestSampleIsVisibleAsAttention(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{
+		FullName: "acme/busy", Name: "busy", URL: "https://github.com/acme/busy",
+		PRs: 14, PRsTruncated: true,
+		PullRequests: []pullRequestSummary{{Number: 14, Title: "Recent PR", ReviewDecision: "APPROVED"}},
+	}
+	items := collectAttentionItems([]repository{repo}, now)
+	if len(items) != 1 {
+		t.Fatalf("attention items = %d, want sample warning: %+v", len(items), items)
+	}
+	if items[0].Kind != "PR SAMPLE" || items[0].URL != repo.URL {
+		t.Fatalf("incomplete PR sample is not actionable: %+v", items[0])
+	}
+	if got := repoPortfolioState(repo, now); got != "ATTENTION" {
+		t.Fatalf("portfolio state = %q, want ATTENTION while PR sample is incomplete", got)
+	}
+}
