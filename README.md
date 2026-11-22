@@ -8,7 +8,7 @@ The dashboard is designed for large terminal windows. It shows an account overvi
 
 - Account-wide repository table with branch, open pull request, open issue, and latest Actions status counts.
 - Aggregate cards for repositories, branches, open pull requests, open issues, running workflows, recent failures, and recently updated branch heads.
-- Full-width, per-repository hourly commit histograms are visible on the account dashboard as soon as cached or freshly fetched commit history is available. The expanded analytics screen adds larger repository cards and a 24-hour / 7-day range selector.
+- Full-width, per-repository hourly commit histograms are visible on the account dashboard. The expanded analytics screen includes a ranked, scrollable GitHub-style 1-year calendar heatmap for every repository active in the last year, plus 24-hour and 7-day chart ranges.
 - Per-repository count of currently running GitHub Actions jobs (only `in_progress`; queued runs are not counted).
 - Repository detail includes recent commits and authors for its branches; Actions runs are prioritized by activity and failure state, with logs for the selected run.
 - Repository names are shown without repeating the account owner; the owner is included when repository names collide.
@@ -56,7 +56,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 | `↑` / `↓`, `j` / `k` | Move through the focused section |
 | `Enter` on a repository | Scope the dashboard to that repository |
 | `c` | Expand the commit charts into the full analytics screen |
-| `1` / `2` in charts | Switch between 24-hour and 7-day views |
+| `1` / `2` / `3` in charts | Switch between 24-hour, 7-day, and 1-year calendar views |
 | `↑` / `↓` in charts | Scroll through repository charts |
 | `Esc` | Return to the account overview |
 | `/` | Filter repository names |
@@ -71,7 +71,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 ## Refresh and network behavior
 
 - The account snapshot and default-branch commit history refresh every 3 minutes. On first launch, commit charts appear as soon as the initial history request completes; subsequent launches can render the previously cached charts immediately.
-- Commit history queries up to the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The default dashboard renders wide 24-bucket hourly histograms for the most active repositories; the expanded `c` analytics screen renders full repository cards, with `1` for 24 hourly buckets and `2` for 7 daily buckets. All repositories share one Y-axis scale so bar heights can be compared honestly.
+- Commit history covers the previous 365 days on each active repository's default branch. Results are paginated through GitHub's REST API and fetched with at most four concurrent repository requests. The expanded `c` analytics screen ranks repositories by yearly commit total and renders a 53-week calendar heatmap for every repository with activity in that year; use `↑` / `↓` or `PgUp` / `PgDn` to browse the full list. `1` selects 24 hourly buckets, `2` selects 7 daily buckets, and `3` selects the 1-year calendar.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
