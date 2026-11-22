@@ -266,7 +266,6 @@ func TestRepoWorkloadIncludesFeatureBranchCommitsAndDeduplicates(t *testing.T) {
 	}
 }
 
-
 func TestRepoWorkloadCountsThirtyDayCommitsAndActiveBranches(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	repo := repository{
