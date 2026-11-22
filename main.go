@@ -744,6 +744,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "esc", "backspace", "c":
 				m.commitCharts = false
+			case "r":
+				if !m.busyCommitHistory && len(m.repos) > 0 {
+					m.busyCommitHistory = true
+					return m, fetchCommitHistoryCmd(m.api, m.repos)
+				}
 			case "1":
 				m.commitPeriod = 24
 				m.chartScroll = 0
@@ -1708,9 +1713,13 @@ func (m model) chartRepos() []*repository {
 		repos = append(repos, &m.repos[i])
 	}
 	now := time.Now().UTC()
+	period := m.commitPeriod
+	if period != 7 {
+		period = 24
+	}
 	sort.SliceStable(repos, func(i, j int) bool {
-		a := sumInts(repoCommitBuckets(*repos[i], now, 7))
-		b := sumInts(repoCommitBuckets(*repos[j], now, 7))
+		a := sumInts(repoCommitBuckets(*repos[i], now, period))
+		b := sumInts(repoCommitBuckets(*repos[j], now, period))
 		if a != b {
 			return a > b
 		}
