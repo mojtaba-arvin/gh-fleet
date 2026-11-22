@@ -1657,7 +1657,8 @@ func metric(label, value, detail string, color lipgloss.Color, w int) string {
 	return box("", []string{top, mid, bot}, w, 5, false)
 }
 func (m model) renderMetrics(w int) string {
-	var working, running, waiting, failed, commits24 int
+	var active, running, waiting, failed, commits30d int
+	contributors := map[string]bool{}
 	now := time.Now()
 	for _, repo := range m.repos {
 		if m.detail {
@@ -1667,9 +1668,12 @@ func (m model) renderMetrics(w int) string {
 			}
 		}
 		work := repoWorkload(repo, now)
-		commits24 += work.Commits24h
-		if work.Commits24h > 0 || runningRuns(repo) > 0 || queuedRuns(repo) > 0 {
-			working++
+		commits30d += work.Commits30d
+		for _, actor := range work.Actors {
+			contributors[actor] = true
+		}
+		if work.Commits7d > 0 || runningRuns(repo) > 0 || queuedRuns(repo) > 0 {
+			active++
 		}
 		for _, item := range repo.Runs {
 			if item.Status == "in_progress" {
@@ -1691,15 +1695,34 @@ func (m model) renderMetrics(w int) string {
 		}
 	}
 	cw := (w - 4) / 5
+	ciColor := green
+	if failed > 0 {
+		ciColor = red
+	} else if running > 0 || waiting > 0 {
+		ciColor = yellow
+	}
+	coverage := 0
+	for _, repo := range m.repos {
+		if repo.CommitHistoryDays >= activityHistoryDays && repo.BranchHistoryDays >= activityHistoryDays {
+			coverage++
+		}
+	}
+	if m.detail {
+		if selected := m.selectedRepo(); selected != nil {
+			coverage = 0
+			if selected.CommitHistoryDays >= activityHistoryDays && selected.BranchHistoryDays >= activityHistoryDays {
+				coverage = 1
+			}
+		}
+	}
 	items := []string{
 		metric("REPOSITORIES", strconv.Itoa(repoCount), "monitored", cyan, cw),
-		metric("WORKING REPOS", strconv.Itoa(working), fmt.Sprintf("%d commits · 24h", commits24), purple, cw),
-		metric("CI RUNNING", strconv.Itoa(running), "in progress now", yellow, cw),
-		metric("CI WAITING", strconv.Itoa(waiting), "queued · waiting · pending", blue, cw),
-		metric("CI FAILURES", strconv.Itoa(failed), "failed · last 24h", func() lipgloss.Color {
-			if failed > 0 {
-				return red
-			}
+		metric("ACTIVE REPOS", strconv.Itoa(active), "activity or CI · 7d", purple, cw),
+		metric("COMMITS · 30D", countFmt(commits30d), fmt.Sprintf("%d/%d repos covered", coverage, repoCount), blue, cw),
+		metric("CONTRIBUTORS", countFmt(len(contributors)), "unique commit authors · 30d", cyan, cw),
+		metric("CI · RUN / WAIT", fmt.Sprintf("%d / %d", running, waiting), fmt.Sprintf("%d failures · 24h", failed), func() lipgloss.Color {
+			if failed > 0 { return red }
+			if running > 0 || waiting > 0 { return yellow }
 			return green
 		}(), cw),
 	}
@@ -1798,8 +1821,8 @@ func (m model) renderRepos(w, h int) []string {
 	rows := m.visibleRepos()
 	content := make([]string, 0, h)
 	nameW := max(10, w/4)
-	workW, trendW, actorW, ciW, prW := 10, 7, max(7, w/7), 12, 4
-	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H / 7D", trendW, "TREND", actorW, "ACTORS", ciW, "CI", prW, "PR")
+	workW, trendW, peopleW, branchW, ciW, prW := 14, 7, 6, 4, 12, 4
+	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H/7D/30D", trendW, "TREND", peopleW, "PEOPLE", branchW, "BR", ciW, "CI", prW, "PR")
 	content = append(content, mutedStyle.Render(fit(header, w)))
 	room := max(0, h-1)
 	if len(rows) == 0 {
@@ -1813,15 +1836,14 @@ func (m model) renderRepos(w, h int) []string {
 	for i := start; i < min(len(rows), start+room); i++ {
 		r := rows[i]
 		work := repoWorkload(*r, time.Now())
-		actors := strings.Join(work.Actors, ",")
-		if actors == "" {
-			actors = "—"
-		}
+		approx := ""
+		if work.ActivitySampled { approx = "~" }
 		ci := repoCI(*r)
 		line := titleStyle.Render(fit(m.repoLabel(r), nameW)) + " " +
-			mutedStyle.Render(fit(fmt.Sprintf("%d/%d", work.Commits24h, work.Commits7d), workW)) + " " +
+			mutedStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
 			branchStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
-			mutedStyle.Render(fit(actors, actorW)) + " " +
+			mutedStyle.Render(fit(approx+countFmt(len(work.Actors)), peopleW)) + " " +
+			mutedStyle.Render(fit(countFmt(work.ActiveBranches7d), branchW)) + " " +
 			ciStyle(ci).Render(fit(ci, ciW)) + " " +
 			mutedStyle.Render(fit(countFmt(r.PRs), prW))
 		if i == m.cursor {
@@ -1948,7 +1970,8 @@ func commitCounts(repos []repository, now time.Time) ([]int, []int) {
 	hourly, daily := make([]int, 24), make([]int, 7)
 	seen := make(map[string]bool)
 	for _, repo := range repos {
-		for _, item := range repo.Commits {
+		for _, activity := range repoCommitActivity(repo, now) {
+			item := activity.Commit
 			t, err := time.Parse(time.RFC3339, item.Date)
 			if err != nil || t.After(now) || now.Sub(t) >= 7*24*time.Hour {
 				continue
@@ -2212,7 +2235,8 @@ func repoCommitBuckets(repo repository, now time.Time, period int) []int {
 	if period == 7 {
 		values := make([]int, 7)
 		start := now.Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
-		for _, item := range repo.Commits {
+		for _, activity := range repoCommitActivity(repo, now) {
+			item := activity.Commit
 			t, err := time.Parse(time.RFC3339, item.Date)
 			if err != nil || t.Before(start) || t.After(now) {
 				continue
@@ -2226,7 +2250,8 @@ func repoCommitBuckets(repo repository, now time.Time, period int) []int {
 	}
 	values := make([]int, 24)
 	start := now.Add(-24 * time.Hour)
-	for _, item := range repo.Commits {
+	for _, activity := range repoCommitActivity(repo, now) {
+		item := activity.Commit
 		t, err := time.Parse(time.RFC3339, item.Date)
 		if err != nil || t.Before(start) || t.After(now) {
 			continue
