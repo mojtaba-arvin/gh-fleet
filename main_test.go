@@ -47,3 +47,9 @@ func TestCommitCountsBucketsAndDeduplicates(t *testing.T) {
 		t.Fatalf("daily buckets today/three-days-ago = %d/%d, want 2/1", daily[6], daily[3])
 	}
 }
+
+func TestSparklineKeepsZeroBucketsAtBaseline(t *testing.T) {
+	if got, want := sparkline([]int{0, 2, 0}), "·█·"; got != want {
+		t.Fatalf("sparkline() = %q, want %q", got, want)
+	}
+}
