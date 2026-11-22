@@ -12,17 +12,17 @@ import (
 
 func agentTestEvent(now time.Time, id, eventType, state string, sequence int64) agentEvent {
 	return agentEvent{
-		SchemaVersion: "1",
-		EventID: id,
-		Sequence: sequence,
-		EventType: eventType,
-		OccurredAt: now.UTC().Format(time.RFC3339),
-		AgentID: "runner-local-01",
-		TaskID: "task-42",
-		Repository: "example/service",
-		Branch: "agent/fix-timeout",
-		State: state,
-		Source: "example-runner/1.0",
+		SchemaVersion:            "1",
+		EventID:                  id,
+		Sequence:                 sequence,
+		EventType:                eventType,
+		OccurredAt:               now.UTC().Format(time.RFC3339),
+		AgentID:                  "runner-local-01",
+		TaskID:                   "task-42",
+		Repository:               "example/service",
+		Branch:                   "agent/fix-timeout",
+		State:                    state,
+		Source:                   "example-runner/1.0",
 		HeartbeatIntervalSeconds: 10,
 	}
 }
@@ -377,7 +377,7 @@ func TestAgentRuntimeNoticeDistinguishesDisconnectedUnavailableAndConnected(t *t
 	m.lastAgentPoll = now
 	m.agentTasks = map[string]agentTask{
 		"active": {State: "working", LastSignalAt: now, HeartbeatInterval: 30 * time.Second},
-		"stale": {State: "waiting", LastSignalAt: now.Add(-2 * time.Minute), HeartbeatInterval: 10 * time.Second},
+		"stale":  {State: "waiting", LastSignalAt: now.Add(-2 * time.Minute), HeartbeatInterval: 10 * time.Second},
 	}
 	if got := m.agentRuntimeNotice(); !strings.Contains(got, "2 active") || !strings.Contains(got, "1 stale") {
 		t.Fatalf("connected source notice = %q", got)
@@ -397,7 +397,6 @@ func TestGitHubOnlyOverviewDoesNotShowAgentTaskCounts(t *testing.T) {
 		t.Fatalf("GitHub-only view unexpectedly displays agent task count:\n%s", view)
 	}
 }
-
 
 func TestReadAgentSpoolRejectsPermissiveParentDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
