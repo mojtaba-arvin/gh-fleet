@@ -53,7 +53,7 @@ The current implementation uses these initial rules:
 | 6 | CI running | Run age >= 45m | Inspect if unexpected |
 | 7 | Review follow-up | Review requested, no update for >= 72h | Follow up with reviewer |
 
-A draft PR is not treated as review-ready. A requested reviewer is not treated as a completed review. An approved PR is not an attention item. Old failures outside the 24h window are not in the urgent list.
+A draft PR is not treated as review-ready. A requested reviewer is not treated as a completed review. When more than the latest ten open PRs exist, the attention queue includes an explicit sample-coverage warning; review states for additional PRs remain unknown until inspected on GitHub. An approved PR is not an attention item. Old failures outside the 24h window are not in the urgent list.
 
 The duration thresholds do not prove work is stuck. The UI should describe the observable fact and the suggested next check. If data is missing, do not synthesize a healthy value or zero age.
 
