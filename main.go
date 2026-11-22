@@ -2438,7 +2438,7 @@ func (m model) renderActivity(w, h int) []string {
 	content := []string{mutedStyle.Render(fit("RECENT COMMITS · REPO / ACTOR", w))}
 	room := max(0, (h-1)/2)
 	if len(items) == 0 {
-		message := "No default-branch commits in the last 7 days"
+		message := "No recent commits in the last 7 days"
 		if m.busyCommitHistory {
 			message = "Syncing recent commit activity…"
 		}
@@ -2644,7 +2644,7 @@ func (m model) helpView() string {
 		"ATTRIBUTION + DATA",
 		"  Commit authors use GitHub login where available.",
 		"  Actions actors identify who triggered a workflow; this is not an agent heartbeat.",
-		"  Commit activity currently covers each default branch.",
+		"  Commit activity combines default-branch history with recent feature-branch history for recently pushed repositories.",
 		"  Repositories refresh every 3 minutes; Actions and commits every 60 seconds.",
 		"  Cached data remains visible during API outages.",
 	}
