@@ -927,6 +927,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.BranchesFetched = time.Now()
 			saveCache(m)
 		}
+	case commitHistoryMsg:
+		for name, message := range msg.errors {
+			m.lastErr = name + ": " + message
+		}
+		for name, items := range msg.commits {
+			if r := m.repoByName(name); r != nil {
+				r.Commits = items
+				r.CommitsFetched = time.Now()
+			}
+		}
+		if len(msg.commits) > 0 {
+			m.lastCommitHistory = time.Now()
+			saveCache(m)
+		}
+		m.busyCommitHistory = false
 	case logMsg:
 		m.logBusy = false
 		m.logUpdated = time.Now()
@@ -946,6 +961,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.detail && now.Sub(m.lastRepos) >= refsRefreshInterval && !m.busyRepos && !now.Before(m.retryAt["repos"]) {
 			m.busyRepos = true
 			cmds = append(cmds, fetchReposCmd(m.api))
+		}
+		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
+			m.busyCommitHistory = true
+			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
 		for _, r := range m.repos {
 			interval := allRefreshInterval
