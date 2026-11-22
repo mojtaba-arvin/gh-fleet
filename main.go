@@ -579,9 +579,9 @@ type model struct {
 	width, height       int
 	cursor, runCursor   int
 	commitScroll        int
-	chartScroll         int
+	workloadScroll         int
 	commitPeriod        int
-	commitCharts        bool
+	agentWorkloadMode        bool
 	runScroll           int
 	logOffset           int
 	focus               int // repositories, activity, Actions
@@ -841,10 +841,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.commitCharts {
+		if m.agentWorkloadMode {
 			switch msg.String() {
 			case "esc", "backspace", "c":
-				m.commitCharts = false
+				m.agentWorkloadMode = false
 			case "r":
 				if !m.busyCommitHistory && len(m.repos) > 0 {
 					m.busyCommitHistory = true
@@ -852,32 +852,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "1":
 				m.commitPeriod = 24
-				m.chartScroll = 0
+				m.workloadScroll = 0
 			case "2":
-				m.commitPeriod = 7
-				m.chartScroll = 0
+				
+				m.workloadScroll = 0
 			case "3":
 				m.commitPeriod = 365
-				m.chartScroll = 0
+				m.workloadScroll = 0
 			case "up", "k":
-				m.chartScroll = max(0, m.chartScroll-1)
+				m.workloadScroll = max(0, m.workloadScroll-1)
 			case "down", "j":
-				m.chartScroll = min(max(0, len(m.chartRepos())-1), m.chartScroll+1)
+				m.workloadScroll = min(max(0, len(m.chartRepos())-1), m.workloadScroll+1)
 			case "pgup":
-				m.chartScroll = max(0, m.chartScroll-3)
+				m.workloadScroll = max(0, m.workloadScroll-3)
 			case "pgdown":
-				m.chartScroll = min(max(0, len(m.chartRepos())-1), m.chartScroll+3)
+				m.workloadScroll = min(max(0, len(m.chartRepos())-1), m.workloadScroll+3)
 			case "home", "g":
-				m.chartScroll = 0
+				m.workloadScroll = 0
 			case "end", "G":
-				m.chartScroll = max(0, len(m.chartRepos())-1)
+				m.workloadScroll = max(0, len(m.chartRepos())-1)
 			}
 			return m, nil
 		}
 		if msg.String() == "c" {
-			m.commitCharts = true
-			m.chartScroll = 0
-			m.commitPeriod = 7
+			m.agentWorkloadMode = true
+			m.workloadScroll = 0
+			
 			return m, nil
 		}
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
@@ -1593,8 +1593,8 @@ func (m model) View() string {
 	if m.logMode {
 		return m.logView()
 	}
-	if m.commitCharts {
-		return m.commitChartsView()
+	if m.agentWorkloadMode {
+		return m.agentWorkloadView()
 	}
 	if m.width < 90 {
 		return m.narrowView()
@@ -2411,7 +2411,7 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 	})
 	return out
 }
-func (m model) commitChartsView() string {
+func (m model) agentWorkloadView() string {
 	w, h := m.width, m.height
 	if w < 70 || h < 12 {
 		return "Agent workload view needs a terminal at least 70 columns wide and 12 rows high.\nPress Esc to return."
@@ -2435,7 +2435,7 @@ func (m model) commitChartsView() string {
 	if len(rows) == 0 {
 		content = append(content, mutedStyle.Render("No actor activity found in the last 7 days."))
 	}
-	start := min(m.chartScroll, max(0, len(rows)-room))
+	start := min(m.workloadScroll, max(0, len(rows)-room))
 	for i := start; i < min(len(rows), start+room); i++ {
 		a := rows[i]
 		names := make([]string, 0, len(a.Repos))
