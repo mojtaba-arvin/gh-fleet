@@ -36,6 +36,10 @@ const (
 	logRefreshInterval      = 15 * time.Second
 	maxLogBytes             = 2 << 20
 	activityHistoryDays     = 30
+	attentionFailureWindow  = 24 * time.Hour
+	queuedFollowUpAfter     = 15 * time.Minute
+	runningFollowUpAfter    = 45 * time.Minute
+	reviewFollowUpAfter     = 72 * time.Hour
 )
 
 var version = "dev"
@@ -1785,7 +1789,7 @@ func collectAttentionItems(repos []repository, now time.Time) []attentionItem {
 			switch {
 			case item.Status == "completed" && item.Conclusion == "failure" && item.UpdatedAt != "":
 				age := ageSince(now, item.UpdatedAt)
-				if age <= 24*time.Hour {
+				if age <= attentionFailureWindow {
 					subject := item.Name
 					if subject == "" {
 						subject = item.Title
@@ -1798,7 +1802,7 @@ func collectAttentionItems(repos []repository, now time.Time) []attentionItem {
 					started = item.UpdatedAt
 				}
 				age := ageSince(now, started)
-				if started != "" && age >= 15*time.Minute {
+				if started != "" && age >= queuedFollowUpAfter {
 					subject := item.Name
 					if subject == "" {
 						subject = item.Title
@@ -1811,7 +1815,7 @@ func collectAttentionItems(repos []repository, now time.Time) []attentionItem {
 					started = item.CreatedAt
 				}
 				age := ageSince(now, started)
-				if started != "" && age >= 45*time.Minute {
+				if started != "" && age >= runningFollowUpAfter {
 					subject := item.Name
 					if subject == "" {
 						subject = item.Title
@@ -1834,9 +1838,17 @@ func collectAttentionItems(repos []repository, now time.Time) []attentionItem {
 				items = append(items, attentionItem{Priority: 2, Kind: "CONFLICTS", Repo: repo.FullName, Subject: subject, Detail: "GitHub reports a dirty merge state", Next: "Inspect branch conflicts", Age: age, URL: pr.URL})
 			case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) == 0:
 				items = append(items, attentionItem{Priority: 3, Kind: "REVIEW NEEDED", Repo: repo.FullName, Subject: subject, Detail: "Review is required and no reviewer is requested", Next: "Choose a reviewer", Age: age, URL: pr.URL})
-			case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) > 0 && age >= 72*time.Hour:
+			case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) > 0 && age >= reviewFollowUpAfter:
 				items = append(items, attentionItem{Priority: 6, Kind: "REVIEW WAIT", Repo: repo.FullName, Subject: subject, Detail: "Requested review has not been updated for 72h", Next: "Follow up with reviewer", Age: age, URL: pr.URL})
 			}
+		}
+		if repo.PRsTruncated {
+			items = append(items, attentionItem{
+				Priority: 7, Kind: "PR SAMPLE", Repo: repo.FullName,
+				Subject: fmt.Sprintf("%d open PRs · latest 10 inspected", repo.PRs),
+				Detail: "Additional open PR review states were not loaded",
+				Next: "Inspect remaining PRs", URL: repo.URL,
+			})
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -1873,7 +1885,7 @@ func attentionStyle(kind string) lipgloss.Style {
 	switch kind {
 	case "CI FAILED", "CHANGES REQUESTED", "CONFLICTS":
 		return badStyle
-	case "REVIEW NEEDED", "CI QUEUED", "REVIEW WAIT", "CI RUNNING":
+	case "REVIEW NEEDED", "CI QUEUED", "REVIEW WAIT", "CI RUNNING", "PR SAMPLE":
 		return activeStyle
 	default:
 		return mutedStyle
@@ -3270,7 +3282,7 @@ func (m model) renderActions(w, h int) []string {
 			branch = "—"
 		}
 		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + fit(workflow, max(8, w-25))
-		second := mutedStyle.Render("  " + fit(branch, max(8, w-26)) + " · " + fit(actor, 10) + " · " + shortAge(ref.item.UpdatedAt))
+		second := mutedStyle.Render("  " + fit(branch, max(8, w-36)) + " · trigger: " + fit(actor, 10) + " · " + shortAge(ref.item.UpdatedAt))
 		if i == m.runCursor {
 			first = selectStyle.Width(w).Render(fit(first, w))
 		}
@@ -3404,34 +3416,6 @@ func (m model) logView() string {
 		footer = badStyle.Render(m.logErr + "  ·  " + footer)
 	}
 	return head + "\n" + strings.Join(body, "\n") + "\n" + footer
-}
-func (m model) narrowView() string {
-	w, h := m.width, m.height
-	if w < 40 {
-		return "Enlarge terminal to at least 90 columns for the dashboard."
-	}
-	head := m.renderHeader(w)
-	tabs := []string{"1 Repositories", "2 Agent work", "3 CI queue"}
-	var tabLine string
-	for i, t := range tabs {
-		if i == m.focus {
-			tabLine += selectStyle.Render(" "+t+" ") + "  "
-		} else {
-			tabLine += mutedStyle.Render(" "+t+" ") + "  "
-		}
-	}
-	contentH := max(5, h-7)
-	var content []string
-	panelTitle := []string{m.repoTitle(), m.activityTitle(), m.actionsTitle()}[m.focus]
-	switch m.focus {
-	case 0:
-		content = m.renderRepos(w-2, contentH)
-	case 1:
-		content = m.renderActivity(w-2, contentH)
-	case 2:
-		content = m.renderActions(w-2, contentH)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, head, tabLine, box(panelTitle, content, w, contentH+2, true), m.renderFooter(w))
 }
 func (m model) helpView() string {
 	lines := []string{
