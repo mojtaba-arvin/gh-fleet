@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,22 +65,24 @@ type run struct {
 }
 
 type repository struct {
-	FullName        string    `json:"full_name"`
-	Name            string    `json:"name"`
-	URL             string    `json:"url"`
-	Private         bool      `json:"private"`
-	Fork            bool      `json:"fork"`
-	Stars           int       `json:"stars"`
-	Forks           int       `json:"forks"`
-	PushedAt        string    `json:"pushed_at"`
-	Default         string    `json:"default_branch"`
-	PRs             int       `json:"open_prs"`
-	Issues          int       `json:"open_issues"`
-	BranchN         int       `json:"branch_count"`
-	Branches        []branch  `json:"branches"`
-	Runs            []run     `json:"runs"`
-	Fetched         time.Time `json:"fetched"`
-	BranchesFetched time.Time `json:"branches_fetched"`
+	FullName        string       `json:"full_name"`
+	Name            string       `json:"name"`
+	URL             string       `json:"url"`
+	Private         bool         `json:"private"`
+	Fork            bool         `json:"fork"`
+	Stars           int          `json:"stars"`
+	Forks           int          `json:"forks"`
+	PushedAt        string       `json:"pushed_at"`
+	Default         string       `json:"default_branch"`
+	PRs             int          `json:"open_prs"`
+	Issues          int          `json:"open_issues"`
+	BranchN         int          `json:"branch_count"`
+	Branches        []branch     `json:"branches"`
+	Commits         []commitInfo `json:"commits,omitempty"`
+	Runs            []run        `json:"runs"`
+	Fetched         time.Time    `json:"fetched"`
+	BranchesFetched time.Time    `json:"branches_fetched"`
+	CommitsFetched  time.Time    `json:"commits_fetched"`
 }
 
 type diskCache struct {
@@ -287,7 +290,7 @@ func nullable(s string) any {
 
 func (c *apiClient) fetchRuns(ctx context.Context, fullName string) ([]run, error) {
 	key := "runs:" + fullName
-	url := apiRoot + "/repos/" + fullName + "/actions/runs?per_page=25"
+	url := apiRoot + "/repos/" + fullName + "/actions/runs?per_page=100"
 	resp, err := c.request(ctx, http.MethodGet, url, nil, key)
 	if err != nil {
 		return nil, err
@@ -387,6 +390,91 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 	return result, "", nil
 }
 
+func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]commitInfo, error) {
+	if repo.Default == "" {
+		return nil, nil
+	}
+	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100",
+		apiRoot, repo.FullName, url.QueryEscape(repo.Default), url.QueryEscape(since))
+	resp, err := c.request(ctx, http.MethodGet, endpoint, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		err = responseError(resp)
+		resp.Body.Close()
+		return nil, err
+	}
+	var data []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Committer struct {
+				Date string `json:"date"`
+			} `json:"committer"`
+			Message string `json:"message"`
+			Author  struct {
+				Name string `json:"name"`
+			} `json:"author"`
+		} `json:"commit"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("decode commit history for %s: %w", repo.FullName, err)
+	}
+	commits := make([]commitInfo, 0, len(data))
+	for _, item := range data {
+		commits = append(commits, commitInfo{
+			SHA: item.SHA, Date: item.Commit.Committer.Date,
+			Msg: strings.SplitN(item.Commit.Message, "\n", 2)[0], Author: item.Commit.Author.Name,
+		})
+	}
+	return commits, nil
+}
+
+type commitHistoryMsg struct {
+	commits map[string][]commitInfo
+	errors  map[string]string
+}
+
+func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
+		defer cancel()
+		msg := commitHistoryMsg{commits: make(map[string][]commitInfo), errors: make(map[string]string)}
+		sem := make(chan struct{}, 4)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for _, repo := range repos {
+			name := repo.FullName
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					mu.Lock()
+					msg.errors[name] = ctx.Err().Error()
+					mu.Unlock()
+					return
+				}
+				defer func() { <-sem }()
+				items, err := c.fetchCommitHistory(ctx, repo)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					msg.errors[name] = err.Error()
+					return
+				}
+				msg.commits[name] = items
+			}()
+		}
+		wg.Wait()
+		return msg
+	}
+}
+
 func (c *apiClient) fetchLog(ctx context.Context, repo string, id int64) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "run", "view", strconv.FormatInt(id, 10), "--repo", repo, "--log")
 	var stderr bytes.Buffer
@@ -444,6 +532,8 @@ type tickMsg time.Time
 
 type model struct {
 	api                 *apiClient
+	busyCommitHistory   bool
+	lastCommitHistory   time.Time
 	login               string
 	repos               []repository
 	width, height       int
@@ -573,8 +663,11 @@ func newModel(client *apiClient, cachePath string) model {
 	for _, r := range c.Repos {
 		client.cache[r.FullName] = append([]run(nil), r.Runs...)
 	}
-	var refsAt, runsAt time.Time
+	var refsAt, runsAt, commitsAt time.Time
 	for _, r := range c.Repos {
+		if r.CommitsFetched.After(commitsAt) {
+			commitsAt = r.CommitsFetched
+		}
 		if r.BranchesFetched.After(refsAt) {
 			refsAt = r.BranchesFetched
 		}
@@ -584,7 +677,7 @@ func newModel(client *apiClient, cachePath string) model {
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
-		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt}
+		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt}
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(fetchReposCmd(m.api), tickCmd()) }
@@ -790,6 +883,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if v, ok := old[msg.repos[i].FullName]; ok {
 					msg.repos[i].Runs = v.Runs
 					msg.repos[i].Fetched = v.Fetched
+					msg.repos[i].Commits = v.Commits
+					msg.repos[i].CommitsFetched = v.CommitsFetched
 				}
 			}
 			m.repos = msg.repos
@@ -840,6 +935,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.BranchesFetched = time.Now()
 			saveCache(m)
 		}
+	case commitHistoryMsg:
+		for name, message := range msg.errors {
+			m.lastErr = name + ": " + message
+		}
+		for name, items := range msg.commits {
+			if r := m.repoByName(name); r != nil {
+				r.Commits = items
+				r.CommitsFetched = time.Now()
+			}
+		}
+		m.lastCommitHistory = time.Now()
+		if len(msg.commits) > 0 {
+			saveCache(m)
+		}
+		m.busyCommitHistory = false
 	case logMsg:
 		m.logBusy = false
 		m.logUpdated = time.Now()
@@ -859,6 +969,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.detail && now.Sub(m.lastRepos) >= refsRefreshInterval && !m.busyRepos && !now.Before(m.retryAt["repos"]) {
 			m.busyRepos = true
 			cmds = append(cmds, fetchReposCmd(m.api))
+		}
+		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
+			m.busyCommitHistory = true
+			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
 		for _, r := range m.repos {
 			interval := allRefreshInterval
@@ -1082,6 +1197,16 @@ func runPriority(r run) int {
 	return 2
 }
 func isActive(r run) bool { return r.Status != "completed" && r.Status != "" }
+
+func runningRuns(r repository) int {
+	n := 0
+	for _, item := range r.Runs {
+		if item.Status == "in_progress" {
+			n++
+		}
+	}
+	return n
+}
 func runState(r run) string {
 	if isActive(r) {
 		return r.Status
@@ -1360,7 +1485,7 @@ func (m model) activityTitle() string {
 			return "RECENT COMMITS · " + m.repoLabel(r) + " · 30D"
 		}
 	}
-	return "BRANCH HEAD ACTIVITY · ALL REPOS · 30D"
+	return "COMMIT VOLUME · DEFAULT BRANCHES · ALL REPOS"
 }
 func (m model) actionsTitle() string {
 	if m.detail {
@@ -1390,8 +1515,8 @@ func countFmt(n int) string {
 func (m model) renderRepos(w, h int) []string {
 	rows := m.visibleRepos()
 	content := make([]string, 0, h)
-	nameW := max(8, w-23)
-	header := fmt.Sprintf("%-*s %4s %3s %3s %5s", nameW, "REPOSITORY", "BR", "PR", "IS", "CI")
+	nameW := max(8, w-28)
+	header := fmt.Sprintf("%-*s %4s %3s %3s %4s %5s", nameW, "REPOSITORY", "BR", "PR", "IS", "RUN", "CI")
 	content = append(content, mutedStyle.Render(fit(header, w)))
 	room := max(0, h-1)
 	if len(rows) == 0 {
@@ -1410,7 +1535,12 @@ func (m model) renderRepos(w, h int) []string {
 			ci = compactCI(*lr)
 			cistyle = stateStyle(*lr)
 		}
-		line := fmt.Sprintf("%-*s %4s %3s %3s ", nameW, fit(m.repoLabel(r), nameW), countFmt(r.BranchN), countFmt(r.PRs), countFmt(r.Issues)) + cistyle.Render(fit(ci, 5))
+		running := runningRuns(*r)
+		runStyle := mutedStyle
+		if running > 0 {
+			runStyle = activeStyle
+		}
+		line := fmt.Sprintf("%-*s %4s %3s %3s ", nameW, fit(m.repoLabel(r), nameW), countFmt(r.BranchN), countFmt(r.PRs), countFmt(r.Issues)) + runStyle.Render(fit(countFmt(running), 4)) + " " + cistyle.Render(fit(ci, 5))
 		if i == m.cursor {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
@@ -1421,7 +1551,98 @@ func (m model) renderRepos(w, h int) []string {
 	}
 	return content
 }
+func commitCounts(repos []repository, now time.Time) ([]int, []int) {
+	hourly, daily := make([]int, 24), make([]int, 7)
+	seen := make(map[string]bool)
+	for _, repo := range repos {
+		for _, item := range repo.Commits {
+			t, err := time.Parse(time.RFC3339, item.Date)
+			if err != nil || t.After(now) || now.Sub(t) >= 7*24*time.Hour {
+				continue
+			}
+			key := repo.FullName + ":" + item.SHA
+			if item.SHA == "" {
+				key = repo.FullName + ":" + item.Date + ":" + item.Msg
+			}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			day := int(now.Truncate(24*time.Hour).Sub(t.Truncate(24*time.Hour)) / (24 * time.Hour))
+			if day >= 0 && day < 7 {
+				daily[6-day]++
+			}
+			if now.Sub(t) < 24*time.Hour {
+				hour := int(now.Truncate(time.Hour).Sub(t.Truncate(time.Hour)) / time.Hour)
+				if hour >= 0 && hour < 24 {
+					hourly[23-hour]++
+				}
+			}
+		}
+	}
+	return hourly, daily
+}
+
+func sparkline(values []int) string {
+	levels := []rune("▁▂▃▄▅▆▇█")
+	maxValue := 0
+	for _, value := range values {
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	if maxValue == 0 {
+		return strings.Repeat("·", len(values))
+	}
+	var out strings.Builder
+	for _, value := range values {
+		if value == 0 {
+			out.WriteRune('·')
+			continue
+		}
+		level := value * (len(levels) - 1) / maxValue
+		if level == 0 {
+			level = 1
+		}
+		out.WriteRune(levels[level])
+	}
+	return out.String()
+}
+
+func sumInts(values []int) int {
+	total := 0
+	for _, value := range values {
+		total += value
+	}
+	return total
+}
+
+func (m model) renderCommitChart(h int) []string {
+	hourly, daily := commitCounts(m.repos, time.Now())
+	line24 := lipgloss.NewStyle().Foreground(cyan).Render("24H ") + sparkline(hourly)
+	line7 := lipgloss.NewStyle().Foreground(purple).Render("7D  ") + sparkline(daily)
+	status := mutedStyle.Render(fmt.Sprintf("24h: %d commits   7d: %d commits", sumInts(hourly), sumInts(daily)))
+	if m.busyCommitHistory {
+		status += activeStyle.Render("   · refreshing")
+	} else if m.lastCommitHistory.IsZero() {
+		status += mutedStyle.Render("   · loading history")
+	} else {
+		status += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
+	}
+	content := []string{line24, line7, status}
+	for len(content) < h {
+		content = append(content, "")
+	}
+	if len(content) > h {
+		content = content[:h]
+	}
+	return content
+}
+
 func (m model) renderActivity(w, h int) []string {
+	if !m.detail {
+		return m.renderCommitChart(h)
+	}
 	scope := ""
 	if m.detail {
 		if r := m.selectedRepo(); r != nil {

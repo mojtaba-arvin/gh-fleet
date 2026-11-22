@@ -8,8 +8,9 @@ The dashboard is designed for large terminal windows. It shows an account overvi
 
 - Account-wide repository table with branch, open pull request, open issue, and latest Actions status counts.
 - Aggregate cards for repositories, branches, open pull requests, open issues, running workflows, recent failures, and recently updated branch heads.
-- Recent branch-head activity across repositories; repository detail includes recent commits and authors for its branches.
-- Actions runs prioritized by activity and failure state, with logs for the selected run.
+- Live account-wide commit-volume sparklines for the last 24 hours (hourly) and 7 days (daily), sourced from each repository's default-branch history.
+- Per-repository count of currently running GitHub Actions jobs (only `in_progress`; queued runs are not counted).
+- Repository detail includes recent commits and authors for its branches; Actions runs are prioritized by activity and failure state, with logs for the selected run.
 - Repository names are shown without repeating the account owner; the owner is included when repository names collide.
 - Cached startup, conditional Actions requests, bounded concurrency, and retry backoff for unreliable connections.
 - No telemetry. GitHub credentials are read from GitHub CLI and held in memory for API requests.
@@ -66,7 +67,8 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 
 ## Refresh and network behavior
 
-- The account snapshot refreshes every 3 minutes.
+- The account snapshot and default-branch commit history refresh every 3 minutes.
+- Commit-volume history queries the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The 24-hour chart buckets those commits hourly; the 7-day chart buckets them by day.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
