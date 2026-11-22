@@ -580,10 +580,16 @@ func collectAgentInFlight(tasks map[string]agentTask, now time.Time) []inFlightI
 			detail += " · " + task.Source
 		}
 		if task.WorkflowRunID != "" {
-			detail += " · workflow #" + task.WorkflowRunID
+			detail += " · reported workflow #" + task.WorkflowRunID
 		}
 		if isAgentTaskStale(task, now) {
-			kind, priority = "AGENT STALE", 3
+			continue
+		}
+		if task.Branch != "" {
+			detail += " · " + task.Branch
+		}
+		if task.PullRequest != 0 {
+			detail += fmt.Sprintf(" · PR #%d", task.PullRequest)
 		}
 		age := time.Duration(0)
 		if !task.LastSignalAt.IsZero() && now.After(task.LastSignalAt) {
