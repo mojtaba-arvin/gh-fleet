@@ -396,7 +396,7 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 	if repo.Default == "" {
 		return nil, nil
 	}
-	since := time.Now().AddDate(-1, 0, 0).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-365 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	var commits []commitInfo
 	for page := 1; ; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100&page=%d",
@@ -453,7 +453,7 @@ func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
 		sem := make(chan struct{}, 4)
 		var wg sync.WaitGroup
 		var mu sync.Mutex
-		cutoff := time.Now().AddDate(-1, 0, 0)
+		cutoff := time.Now().Add(-365 * 24 * time.Hour)
 		var activeRepos []repository
 		for _, repo := range repos {
 			pushedAt := parseTime(repo.PushedAt)
@@ -1921,7 +1921,7 @@ func repoCommitBuckets(repo repository, now time.Time, period int) []int {
 
 func repoYearDailyCounts(repo repository, now time.Time) map[string]int {
 	counts := make(map[string]int)
-	start := now.UTC().Truncate(24 * time.Hour).AddDate(-1, 0, 0)
+	start := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -364)
 	for _, item := range repo.Commits {
 		t, err := time.Parse(time.RFC3339, item.Date)
 		if err == nil && !t.Before(start) && !t.After(now) {
@@ -1956,7 +1956,7 @@ func calendarHeatmapRows(repo repository, now time.Time, widthLimit int) []strin
 		lipgloss.Color("#8bd49c"),
 	}
 	glyphs := []string{"·", "░", "▒", "▓", "█"}
-	gridStart := now.Truncate(24 * time.Hour).AddDate(-1, 0, 0)
+	gridStart := now.Truncate(24*time.Hour).AddDate(0, 0, -364)
 	gridStart = gridStart.Add(-time.Duration(gridStart.Weekday()) * 24 * time.Hour)
 	monthLine := []rune(strings.Repeat(" ", weeks))
 	lastMonth := time.Month(0)
