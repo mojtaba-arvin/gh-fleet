@@ -143,6 +143,12 @@ class AgentTelemetry:
         if len(line) > MAX_EVENT_LINE_BYTES:
             raise TelemetryError("encoded event exceeds the 16 KiB line limit")
         self._ensure_spool()
+        try:
+            existing = self.spool_path.lstat()
+        except FileNotFoundError as exc:
+            raise TelemetryError("telemetry spool disappeared before append") from exc
+        if stat.S_ISLNK(existing.st_mode):
+            raise TelemetryError("telemetry spool must not be a symlink")
         flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
         try:
             fd = os.open(self.spool_path, flags)
