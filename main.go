@@ -58,16 +58,16 @@ type commitInfo struct {
 }
 
 type pullRequestSummary struct {
-	Number             int      `json:"number"`
-	Title              string   `json:"title"`
-	URL                string   `json:"url"`
-	IsDraft            bool     `json:"is_draft"`
-	CreatedAt          string   `json:"created_at"`
-	UpdatedAt          string   `json:"updated_at"`
-	ReviewDecision     string   `json:"review_decision"`
-	MergeStateStatus   string   `json:"merge_state_status"`
-	HeadRefName        string   `json:"head_ref_name"`
-	AuthorLogin        string   `json:"author_login,omitempty"`
+	Number                      int      `json:"number"`
+	Title                       string   `json:"title"`
+	URL                         string   `json:"url"`
+	IsDraft                     bool     `json:"is_draft"`
+	CreatedAt                   string   `json:"created_at"`
+	UpdatedAt                   string   `json:"updated_at"`
+	ReviewDecision              string   `json:"review_decision"`
+	MergeStateStatus            string   `json:"merge_state_status"`
+	HeadRefName                 string   `json:"head_ref_name"`
+	AuthorLogin                 string   `json:"author_login,omitempty"`
 	RequestedReviewers          []string `json:"requested_reviewers,omitempty"`
 	RequestedReviewersTruncated bool     `json:"requested_reviewers_truncated,omitempty"`
 }
@@ -2045,6 +2045,9 @@ func (m model) renderInFlightRows(w, h int) []string {
 		for i := 0; i < min(len(items), h); i++ {
 			item := items[i]
 			label := item.Kind + " " + shortName(item.Repo) + " " + item.Subject + " " + ageLabel(item.Age)
+			if item.Detail != "" {
+				label += " · " + item.Detail
+			}
 			rows = append(rows, fit(label, w))
 		}
 		if len(items) == 0 {
@@ -3158,7 +3161,7 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 func (m model) agentWorkloadView() string {
 	w, h := m.width, m.height
 	if w < 70 || h < 12 {
-		return "Agent workload view needs a terminal at least 70 columns wide and 12 rows high.\nPress Esc to return."
+		return "GitHub identity diagnostics need at least 70 columns and 12 rows.\nPress Esc to return."
 	}
 	head := m.renderHeader(w)
 	title := titleStyle.Render("GITHUB IDENTITIES · BY REPOSITORY") + mutedStyle.Render("   Observed commit authors + workflow trigger actors · last 7 days")
