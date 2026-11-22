@@ -19,7 +19,7 @@ The dashboard is designed for large terminal windows. It shows an account overvi
 
 - GitHub CLI (`gh`) installed and authenticated with `gh auth login`.
 - Go 1.24 or newer to build or install from source.
-- A terminal with at least 90 columns for the full dashboard. Smaller windows switch to a focused single-panel view. The dedicated commit-chart screen requires at least 70 columns and 16 rows.
+- A terminal with at least 90 columns for the full dashboard. Smaller windows show commit charts and repositories together on the initial overview, with tabs for focused activity and Actions views. The dedicated commit-chart screen requires at least 70 columns and 16 rows.
 
 The current release targets `github.com`. The authenticated GitHub CLI account needs access to the repositories and Actions data you want to view.
 
