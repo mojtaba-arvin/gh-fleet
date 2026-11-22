@@ -553,6 +553,12 @@ type branchesMsg struct {
 	branches []branch
 	err      error
 }
+type branchHistoryMsg struct {
+	branches map[string][]branch
+	skipped map[string]bool
+	errors map[string]string
+}
+
 type logMsg struct {
 	repo string
 	id   int64
@@ -565,6 +571,8 @@ type model struct {
 	api                 *apiClient
 	busyCommitHistory   bool
 	lastCommitHistory   time.Time
+	busyBranchHistory   bool
+	lastBranchHistory   time.Time
 	login               string
 	repos               []repository
 	width, height       int
@@ -636,6 +644,57 @@ func fetchAllBranchesCmd(c *apiClient, repo string) tea.Cmd {
 		return branchesMsg{repo, all, nil}
 	}
 }
+func fetchBranchHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		msg := branchHistoryMsg{branches: make(map[string][]branch), skipped: make(map[string]bool), errors: make(map[string]string)}
+		sem := make(chan struct{}, 4)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		cutoff := time.Now().Add(-30 * 24 * time.Hour)
+		for _, repo := range repos {
+			if pushed := parseTime(repo.PushedAt); !pushed.IsZero() && pushed.Before(cutoff) {
+				msg.skipped[repo.FullName] = true
+				continue
+			}
+			repo := repo
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					mu.Lock()
+					msg.errors[repo.FullName] = ctx.Err().Error()
+					mu.Unlock()
+					return
+				}
+				defer func() { <-sem }()
+				var all []branch
+				after := ""
+				for {
+					page, next, err := c.fetchBranches(ctx, repo.FullName, after)
+					if err != nil {
+						mu.Lock()
+						msg.errors[repo.FullName] = err.Error()
+						mu.Unlock()
+						return
+					}
+					all = append(all, page...)
+					if next == "" { break }
+					after = next
+				}
+				mu.Lock()
+				msg.branches[repo.FullName] = all
+				mu.Unlock()
+			}()
+		}
+		wg.Wait()
+		return msg
+	}
+}
+
 func fetchLogCmd(c *apiClient, repo string, id int64) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
