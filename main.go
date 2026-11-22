@@ -336,7 +336,7 @@ func (c *apiClient) fetchRuns(ctx context.Context, fullName string) ([]run, erro
 func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) ([]branch, string, error) {
 	query := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp!){repository(owner:$owner,name:$name){refs(refPrefix:"refs/heads/",first:100,after:$after){nodes{name target{...on Commit{oid committedDate messageHeadline history(first:20,since:$since){nodes{oid committedDate messageHeadline author{name user{login}}}pageInfo{hasNextPage}}}}}pageInfo{hasNextPage endCursor}}}}`
 	parts := strings.SplitN(fullName, "/", 2)
-	since := time.Now().Add(-activityHistoryDays * 24 * time.Hour).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-time.Duration(activityHistoryDays) * 24 * time.Hour).UTC().Format(time.RFC3339)
 	payload, _ := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"owner": parts[0], "name": parts[1], "after": nullable(after), "since": since}})
 	resp, err := c.request(ctx, http.MethodPost, graphQLURL, bytes.NewReader(payload), "")
 	if err != nil {
@@ -412,7 +412,7 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 	if repo.Default == "" {
 		return nil, nil
 	}
-	since := time.Now().Add(-activityHistoryDays * 24 * time.Hour).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-time.Duration(activityHistoryDays) * 24 * time.Hour).UTC().Format(time.RFC3339)
 	var commits []commitInfo
 	for page := 1; ; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100&page=%d",
@@ -2487,7 +2487,7 @@ func (m model) renderActivity(w, h int) []string {
 		}
 	}
 	now := time.Now()
-	cut := now.Add(-activityHistoryDays * 24 * time.Hour)
+	cut := now.Add(-time.Duration(activityHistoryDays) * 24 * time.Hour)
 	for _, repo := range m.repos {
 		if scope != "" && repo.FullName != scope {
 			continue
