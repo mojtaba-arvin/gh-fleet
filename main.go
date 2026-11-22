@@ -2324,15 +2324,22 @@ func (m model) renderHeader(w int) string {
 		status = badStyle.Render("● " + state)
 	}
 	if w < 70 {
-		left := titleStyle.Render("GH FLEET") + mutedStyle.Render("  @"+m.login)
-		return fit(left+"  "+status, w) + "\n" +
+		smallState := "● SYNCING"
+		if !m.lastRepos.IsZero() {
+			smallState = "● CONNECTED"
+		}
+		if m.lastErr != "" {
+			smallState = "● STALE"
+		}
+		return fit(titleStyle.Render("GH FLEET")+"  "+goodStyle.Render(smallState), w) + "\n" +
 			mutedStyle.Render(fit("Agent runtime: NOT CONNECTED", w))
 	}
 	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
 	login := mutedStyle.Render("  " + m.login)
-	left := brand + login
+	left := fit(brand+login, max(1, w-width(status)-1))
+	gap := max(1, w-width(left)-width(status))
 	sourceNotice := "Human operations view  ·  GitHub facts only  ·  Agent runtime: NOT CONNECTED"
-	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" +
+	return left + strings.Repeat(" ", gap) + status + "\n" +
 		mutedStyle.Render(fit(sourceNotice, w))
 }
 
@@ -3355,7 +3362,11 @@ func (m model) renderFooter(w int) string {
 	if width(left)+width(right)+1 > w {
 		right = ""
 	}
-	return fit(left, w) + strings.Repeat(" ", max(1, w-width(fit(left, w))-width(right))) + right
+	left = fit(left, w)
+	if right != "" {
+		left = fit(left, max(1, w-width(right)-1))
+	}
+	return left + strings.Repeat(" ", max(0, w-width(left)-width(right))) + right
 }
 
 func (m model) logView() string {
