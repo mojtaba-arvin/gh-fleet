@@ -70,7 +70,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 
 ## Refresh and network behavior
 
-- The account snapshot and default-branch commit history refresh every 3 minutes.
+- The account snapshot and default-branch commit history refresh every 3 minutes. On first launch, commit charts appear as soon as the initial history request completes; subsequent launches can render the previously cached charts immediately.
 - Commit history queries up to the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The default dashboard renders wide 24-bucket hourly histograms for the most active repositories; the expanded `c` analytics screen renders full repository cards, with `1` for 24 hourly buckets and `2` for 7 daily buckets. All repositories share one Y-axis scale so bar heights can be compared honestly.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
