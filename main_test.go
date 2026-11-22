@@ -144,3 +144,56 @@ func TestScaledBarUnitsPreserveSmallNonZeroActivity(t *testing.T) {
 		t.Fatalf("scaledBarUnits() = %v, want [1 0 40]", got)
 	}
 }
+
+func TestCalendarHeatmapRowsRendersFullYearAndMonthLabels(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{FullName: "acme/calendar", Commits: []commitInfo{
+		{SHA: "a", Date: "2026-11-22T10:00:00Z"},
+		{SHA: "b", Date: "2026-11-22T11:00:00Z"},
+		{SHA: "c", Date: "2026-03-10T11:00:00Z"},
+		{SHA: "old", Date: "2025-10-01T11:00:00Z"},
+	}}
+	rows := calendarHeatmapRows(repo, now, 53)
+	if len(rows) != 8 {
+		t.Fatalf("calendar rows = %d, want 8", len(rows))
+	}
+	if !strings.Contains(rows[0], "Jan") || !strings.Contains(rows[0], "Nov") {
+		t.Fatalf("month labels missing: %q", rows[0])
+	}
+	for i, row := range rows[1:] {
+		if width(row) != 53 {
+			t.Errorf("row %d width = %d, want 53", i, width(row))
+		}
+	}
+}
+
+func TestChartReposRanksEveryActiveYearRepository(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{commitPeriod: 365, repos: []repository{
+		{
+			FullName: "acme/quiet",
+			Name:     "quiet",
+			Commits:  []commitInfo{{SHA: "q", Date: now.Add(-time.Hour).Format(time.RFC3339)}},
+		},
+		{
+			FullName: "acme/busy",
+			Name:     "busy",
+			Commits: []commitInfo{
+				{SHA: "b1", Date: now.Add(-time.Hour).Format(time.RFC3339)},
+				{SHA: "b2", Date: now.Add(-30 * time.Minute).Format(time.RFC3339)},
+			},
+		},
+		{
+			FullName: "acme/inactive",
+			Name:     "inactive",
+			Commits:  []commitInfo{{SHA: "old", Date: now.AddDate(-2, 0, 0).Format(time.RFC3339)}},
+		},
+	}}
+	got := m.chartRepos()
+	if len(got) != 2 {
+		t.Fatalf("active yearly repositories = %d, want 2", len(got))
+	}
+	if got[0].FullName != "acme/busy" {
+		t.Fatalf("first ranked repo = %s, want acme/busy", got[0].FullName)
+	}
+}
