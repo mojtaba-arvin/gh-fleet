@@ -33,7 +33,7 @@ func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
 func TestNarrowDefaultDashboardShowsCommitChartsImmediately(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width: 80,
+		width:  80,
 		height: 30,
 		repos: []repository{{
 			FullName:       "acme/active",
