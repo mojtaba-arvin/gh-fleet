@@ -632,7 +632,7 @@ func TestBusyHeaderUsesMotionOnlyWhenEnabled(t *testing.T) {
 	if got := m.renderHeader(100); strings.Contains(got, "◓") || strings.Contains(got, "◐") {
 		t.Fatalf("motion-disabled header still contains spinner: %q", got)
 	}
-	if cmd := m.animationCmdIfEnabled(); cmd != nil {
+	if cmd := m.animationCmdIfNeeded(); cmd != nil {
 		t.Fatal("motion-disabled model scheduled an animation timer")
 	}
 }
