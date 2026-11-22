@@ -6,7 +6,7 @@ The dashboard is designed to answer operational questions quickly: which reposit
 
 ## Operations dashboard
 
-- **Repository workload:** every repository is ranked by operational urgency: running CI, queued CI, recent CI failures, recent commit activity, then idle. Each row shows commits in the last 24 hours and 7 days, a seven-day activity sparkline, observed commit/Actions actors, and current CI state.
+- **Repository workload:** every repository is ranked by operational urgency: running CI, queued CI, recent CI failures, recent commit activity, then idle. Each row shows unique commits over 24 hours, 7 days, and 30 days; a seven-day trend; distinct commit contributors; active branches; open PRs; and current CI state.
 - **CI queue:** a live queue of running and waiting GitHub Actions workflows, plus failures from the last 24 hours. Each entry identifies the repository, workflow, branch, triggering actor, and time since its latest update.
 - **Agent workload:** press `c` to see a cross-repository actor matrix with 24-hour / 7-day commit counts, running / waiting CI counts, repositories touched, and last observed activity.
 - **Operational summary:** monitored repositories, repositories with recent work or active CI, running workflows, queued workflows, and recent CI failures.
@@ -19,7 +19,7 @@ The dashboard is designed to answer operational questions quickly: which reposit
 
 GitHub Actions exposes the actor who triggered each workflow. Commit history exposes a GitHub author login when GitHub can associate the commit with an account. gh-fleet combines these signals to show observed actors per repository; it does **not** claim that a GitHub actor is necessarily an autonomous agent or that a commit is a live agent heartbeat.
 
-Commit counts combine the full seven-day default-branch history with up to ten recent commits per branch for repositories pushed within the last 30 days. This brings unmerged agent branches into the workload view; very high-volume branches can exceed that per-branch sample. Actions actors remain the identity of the workflow trigger, not proof of an autonomous agent heartbeat. GitHub Actions statuses are shown as GitHub reports them: `in_progress` is RUNNING; `queued`, `waiting`, `requested`, and `pending` are WAITING. A queued or running workflow is a CI state, not proof that an external agent process is blocked waiting for it.
+Commit counts combine the paginated 30-day default-branch history with up to 20 recent commits per branch for repositories pushed within the last 30 days. Commits reachable from multiple branches are deduplicated. If a branch exceeds the sample limit, activity and contributor counts are marked with ~ to show that they are lower bounds. The seven-day sparkline and active-branch count include feature-branch activity. Actions actors remain the identity of the workflow trigger, not proof of an autonomous agent heartbeat. GitHub Actions statuses are shown as GitHub reports them: `in_progress` is RUNNING; `queued`, `waiting`, `requested`, and `pending` are WAITING. A queued or running workflow is a CI state, not proof that an external agent process is blocked waiting for it.
 
 ## Requirements
 
@@ -70,8 +70,9 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 
 - Repository metadata, branch heads, PR counts, and issue counts refresh every 3 minutes.
 - GitHub Actions runs refresh every 60 seconds, with at most four concurrent repository requests.
-- Default-branch commit activity covers the previous 7 days and refreshes every 3 minutes, with at most four concurrent requests.
-- Recent commit histories from all branches are fetched for repositories pushed within the last 30 days, with at most four concurrent repository requests; branch history refreshes every 3 minutes.
+- Default-branch commit activity covers the previous 30 days and is paginated in batches of 100 commits.
+- Recent commit histories from all branches are fetched for repositories pushed within the last 30 days, with up to 20 commits per branch and at most four concurrent repository requests; branch history refreshes every 3 minutes.
+- The repository table shows 24-hour / 7-day / 30-day unique commit counts, 30-day distinct contributors, and branches active in the last 7 days. A ~ prefix marks a branch sample that reached its limit.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
 - Actions requests use ETags when GitHub provides them. Failed requests use exponential backoff and cached data remains visible.
