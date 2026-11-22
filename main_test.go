@@ -53,3 +53,29 @@ func TestSparklineKeepsZeroBucketsAtBaseline(t *testing.T) {
 		t.Fatalf("sparkline() = %q, want %q", got, want)
 	}
 }
+
+
+func TestRepoCommitBucketsAreIndependent(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 30, 0, 0, time.UTC)
+	one := repository{FullName: "acme/one", Commits: []commitInfo{
+		{SHA: "a", Date: "2026-11-22T12:05:00Z"},
+		{SHA: "b", Date: "2026-11-22T11:05:00Z"},
+		{SHA: "old", Date: "2026-11-14T08:00:00Z"},
+	}}
+	two := repository{FullName: "acme/two", Commits: []commitInfo{
+		{SHA: "c", Date: "2026-11-22T12:10:00Z"},
+	}}
+	one24 := repoCommitBuckets(one, now, 24)
+	two24 := repoCommitBuckets(two, now, 24)
+	if sumInts(one24) != 2 || sumInts(two24) != 1 {
+		t.Fatalf("independent 24h totals = %d and %d, want 2 and 1", sumInts(one24), sumInts(two24))
+	}
+	one7 := repoCommitBuckets(one, now, 7)
+	two7 := repoCommitBuckets(two, now, 7)
+	if sumInts(one7) != 2 || sumInts(two7) != 1 {
+		t.Fatalf("independent 7d totals = %d and %d, want 2 and 1", sumInts(one7), sumInts(two7))
+	}
+	if one24[23] != 1 || one24[22] != 1 || two24[23] != 1 {
+		t.Fatalf("hourly buckets were not kept separate: one=%v two=%v", one24, two24)
+	}
+}
