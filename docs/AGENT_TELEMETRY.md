@@ -147,3 +147,8 @@ Or set `GH_FLEET_AGENT_EVENTS` to the same path. The command-line flag takes pre
 Each record must be one complete JSON object followed by a newline. Producers should append a whole serialized event in one write where possible. If the spool is replaced or truncated, the reducer resets and the producer must re-emit an `agent.started` snapshot for every task that remains active before appending later events. This allows the new spool to rebuild state without treating a heartbeat as a start event.
 
 The dashboard polls the configured file every five seconds. GitHub-only mode does not open or poll an agent event file.
+
+
+## Python producer SDK
+
+A minimal, dependency-free Python SDK is maintained in [`integrations/python`](../integrations/python/README.md). It implements this version-1 event envelope, per-task monotonic sequence numbers, unique event IDs, lifecycle transition checks, safe summaries, periodic heartbeats, and secure local JSONL appends. Use one SDK object per agent/task attempt; retries need a new task ID. The SDK deliberately does not integrate with a specific LLM or orchestration framework, so runner callbacks remain in control of when progress, waiting, blocked, and resumed events are reported.
