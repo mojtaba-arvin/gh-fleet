@@ -208,7 +208,16 @@ const repoQuery = `query($after:String) {
             number title url isDraft createdAt updatedAt reviewDecision mergeStateStatus headRefName
             author { login }
             reviewRequests(first:5) {
-              nodes { requestedReviewer { ... on User { login } ... on Team { name } } }
+              nodes {
+                requestedReviewer {
+                  ... on User { login }
+                  ... on Bot { login }
+                  ... on Mannequin { login }
+                  ... on Team { name }
+                  ... on EnterpriseTeam { name }
+                }
+              }
+              pageInfo { hasNextPage }
             }
           }
           pageInfo { hasNextPage }
@@ -264,6 +273,9 @@ type repoResponse struct {
 										Name  string `json:"name"`
 									} `json:"requestedReviewer"`
 								} `json:"nodes"`
+								Page struct {
+									HasNext bool `json:"hasNextPage"`
+								} `json:"pageInfo"`
 							} `json:"reviewRequests"`
 						} `json:"nodes"`
 						Page struct {
@@ -655,6 +667,7 @@ type model struct {
 	width, height       int
 	cursor, runCursor   int
 	attentionCursor     int
+	prCursor            int
 	commitScroll        int
 	workloadScroll      int
 	commitPeriod        int
@@ -994,8 +1007,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					_ = openURL(item.URL)
 				}
 			case 1:
-				if len(m.visibleRepos()) > 0 {
-					m.detail = !m.detail
+				if m.detail {
+					if r := m.selectedRepo(); r != nil && m.prCursor >= 0 && m.prCursor < len(r.PullRequests) {
+						_ = openURL(r.PullRequests[m.prCursor].URL)
+					}
+				} else if len(m.visibleRepos()) > 0 {
+					m.detail = true
+					m.prCursor = 0
 					if m.detail {
 						r := m.selectedRepo()
 						var cmds []tea.Cmd
@@ -1066,7 +1084,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case 1:
 				if r := m.selectedRepo(); r != nil {
-					_ = openURL(r.URL)
+					if m.detail && m.prCursor >= 0 && m.prCursor < len(r.PullRequests) {
+						_ = openURL(r.PullRequests[m.prCursor].URL)
+					} else {
+						_ = openURL(r.URL)
+					}
 				}
 			case 2:
 				if r := m.selectedRun(); r != nil {
@@ -1109,7 +1131,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case 0:
 				m.attentionCursor = 0
 			case 1:
-				m.cursor = 0
+				if m.detail {
+					m.prCursor = 0
+				} else {
+					m.cursor = 0
+				}
 			case 2:
 				m.runCursor = 0
 			}
@@ -1118,7 +1144,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case 0:
 				m.attentionCursor = max(0, len(m.attentionItems())-1)
 			case 1:
-				m.cursor = max(0, len(m.visibleRepos())-1)
+				if m.detail {
+					if r := m.selectedRepo(); r != nil {
+						m.prCursor = max(0, len(r.PullRequests)-1)
+					}
+				} else {
+					m.cursor = max(0, len(m.visibleRepos())-1)
+				}
 			case 2:
 				m.runCursor = max(0, len(m.visibleRuns())-1)
 			}
@@ -1314,7 +1346,13 @@ func (m *model) move(n int) {
 	case 0:
 		m.attentionCursor = max(0, min(len(m.attentionItems())-1, m.attentionCursor+n))
 	case 1:
-		m.cursor = max(0, min(len(m.visibleRepos())-1, m.cursor+n))
+		if m.detail {
+			if r := m.selectedRepo(); r != nil {
+				m.prCursor = max(0, min(len(r.PullRequests)-1, m.prCursor+n))
+			}
+		} else {
+			m.cursor = max(0, min(len(m.visibleRepos())-1, m.cursor+n))
+		}
 	case 2:
 		m.runCursor = max(0, min(len(m.visibleRuns())-1, m.runCursor+n))
 	}
@@ -1852,6 +1890,9 @@ func (m model) renderOverviewSummary() string {
 		running += runningRuns(repo)
 		queued += queuedRuns(repo)
 	}
+	if m.width < 70 {
+		return fit(fmt.Sprintf("ATT %d  ·  PR %d  ·  RUN %d  ·  QUEUED %d", len(items), openPRs, running, queued), m.width)
+	}
 	parts := []string{
 		badStyle.Render(fmt.Sprintf("ATTENTION %d", len(items))),
 		titleStyle.Render(fmt.Sprintf("OPEN PRs %d", openPRs)),
@@ -2114,28 +2155,34 @@ func (m model) repoDetailView() string {
 	if repo == nil {
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, mutedStyle.Render("No repository selected."), m.renderFooter(w))
 	}
+	panelHeight := max(6, h-5)
+	innerRows := max(1, panelHeight-2)
+	prCapacity := max(1, innerRows-6)
+	prStart := max(0, min(m.prCursor-prCapacity/2, max(0, len(repo.PullRequests)-prCapacity)))
+	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
 		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch " + fallback(repo.Default, "unknown")),
 		mutedStyle.Render(fmt.Sprintf("Open PRs %d  ·  Open issues %d  ·  Branches %d  ·  Last push %s", repo.PRs, repo.Issues, repo.BranchN, fallback(shortAge(repo.PushedAt), "—"))),
 		"",
-		titleStyle.Render("OPEN PULL REQUESTS"),
+		titleStyle.Render("OPEN PULL REQUESTS  ·  ↑↓ SELECT  ·  ENTER / o OPEN"),
 	}
 	if len(repo.PullRequests) == 0 {
-		content = append(content, mutedStyle.Render("No pull request detail returned."))
+		content = append(content, mutedStyle.Render("No open pull requests in the latest snapshot."))
 	}
-	for _, pr := range repo.PullRequests {
-		line := fmt.Sprintf("#%d  %s", pr.Number, pr.Title)
-		content = append(content, fit(titleStyle.Render(line), w-2))
-		branch := pr.HeadRefName
-		if branch == "" {
-			branch = "branch unknown"
+	for i := prStart; i < prEnd; i++ {
+		pr := repo.PullRequests[i]
+		line := fmt.Sprintf("#%-5d %s  ·  %s  ·  %s ago", pr.Number, pr.Title, pullRequestReviewText(pr), shortAge(pr.UpdatedAt))
+		if i == m.prCursor {
+			content = append(content, selectStyle.Width(w-2).Render(fit(line, w-2)))
+		} else {
+			content = append(content, fit(line, w-2))
 		}
-		content = append(content, fit(mutedStyle.Render(pullRequestReviewText(pr)+"  ·  "+branch+"  ·  updated "+shortAge(pr.UpdatedAt)+" ago"), w-2))
 	}
 	if repo.PRsTruncated {
-		content = append(content, mutedStyle.Render("Showing the 10 most recently updated PRs; additional PRs are not expanded here."))
+		content = append(content, mutedStyle.Render("Showing the 10 most recently updated PRs; more are available on GitHub."))
 	}
 	content = append(content, "", titleStyle.Render("RECENT CI"))
+	ciShown := 0
 	for _, item := range repo.Runs {
 		if isActive(item) || (item.Status == "completed" && item.Conclusion == "failure" && ageSince(time.Now(), item.UpdatedAt) <= 24*time.Hour) {
 			label := item.Name
@@ -2143,13 +2190,19 @@ func (m model) repoDetailView() string {
 				label = item.Title
 			}
 			content = append(content, fit(stateStyle(item).Render(stateText(item))+"  "+label+"  ·  "+fallback(item.Branch, "branch unknown")+"  ·  "+shortAge(item.UpdatedAt)+" ago", w-2))
+			ciShown++
+			if ciShown >= 2 || len(content) >= innerRows {
+				break
+			}
 		}
 	}
-	if len(content) > h-5 {
-		content = content[:h-5]
-		content = append(content, mutedStyle.Render("… more detail available on GitHub"))
+	if ciShown == 0 && len(content) < innerRows {
+		content = append(content, mutedStyle.Render("No active or recent failed workflows."))
 	}
-	panel := box("REPOSITORY DETAIL", content, w, max(6,h-5), true)
+	if len(content) > innerRows {
+		content = content[:innerRows]
+	}
+	panel := box("REPOSITORY DETAIL", content, w, panelHeight, true)
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, panel, m.renderFooter(w))
 }
 
@@ -2186,8 +2239,12 @@ func (m model) renderHeader(w int) string {
 		status = badStyle.Render("● " + state)
 	}
 	left := brand + login
+	sourceNotice := "Human operations view  ·  GitHub facts only  ·  Agent runtime: NOT CONNECTED"
+	if w < 70 {
+		sourceNotice = "Agent runtime: NOT CONNECTED"
+	}
 	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" +
-		mutedStyle.Render(fit("Human operations view  ·  GitHub facts only  ·  Agent runtime: NOT CONNECTED", w))
+		mutedStyle.Render(fit(sourceNotice, w))
 }
 
 func metric(label, value, detail string, color lipgloss.Color, w int) string {
@@ -3179,7 +3236,7 @@ func (m model) renderFooter(w int) string {
 	case 1:
 		left = "↑↓ repositories  Enter detail  / filter  o browser  r refresh  Esc back  ? help  q quit"
 		if m.detail {
-			left = "↑↓ repositories  o open GitHub  Esc portfolio  r refresh  ? help  q quit"
+			left = "↑↓ select PR  Enter/o open PR  Esc portfolio  r refresh  ? help  q quit"
 		}
 	case 2:
 		left = "↑↓ runs  Enter/l logs  o browser  r refresh  Tab overview  ? help  q quit"
