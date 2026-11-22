@@ -1234,15 +1234,10 @@ func (m model) selectedRun() *runRef {
 	return &r
 }
 func repoPriority(r *repository) int {
-	for _, x := range r.Runs {
-		if x.Status != "completed" {
-			return 0
-		}
-		if x.Conclusion == "failure" {
-			return 1
-		}
-	}
-	return 2
+	for _,x:=range r.Runs{if x.Status=="in_progress"{return 0}}
+	for _,x:=range r.Runs{if queuedRun(x){return 1}}
+	for _,x:=range r.Runs{if x.Status=="completed"&&x.Conclusion=="failure"&&time.Since(parseTime(x.UpdatedAt))<24*time.Hour{return 2}}
+	if repoWorkload(*r,time.Now()).Commits24h>0{return 3};return 4
 }
 func latestRepoDate(r repository) time.Time {
 	var best time.Time
@@ -1265,13 +1260,7 @@ func latestRun(r repository) *run {
 	return nil
 }
 func runPriority(r run) int {
-	if isActive(r) {
-		return 0
-	}
-	if r.Conclusion == "failure" {
-		return 1
-	}
-	return 2
+	if r.Status=="in_progress"{return 0};if queuedRun(r){return 1};if r.Status=="completed"&&r.Conclusion=="failure"{return 2};return 3
 }
 func isActive(r run) bool { return r.Status != "completed" && r.Status != "" }
 
@@ -2122,101 +2111,37 @@ func (m model) commitChartsView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, head, selector, body, footer)
 }
 
-func (m model) renderActivity(w, h int) []string {
-	if !m.detail {
-		return m.renderCommitChart(w, h)
-	}
-	scope := ""
-	if m.detail {
-		if r := m.selectedRepo(); r != nil {
-			scope = r.FullName
-		}
-	}
-	items := commits(m.repos, scope)
-	content := make([]string, 0, h)
-	repoW, branchW := max(8, w/6), max(12, w/4)
-	if m.detail {
-		authorW := max(8, w/8)
-		msgW := max(1, w-8-repoW-branchW-authorW)
-		content = append(content, mutedStyle.Render(fit(fmt.Sprintf("%-4s %-*s %-*s %-*s %s", "AGE", repoW, "REPO", branchW, "BRANCH", authorW, "AUTHOR", "COMMIT"), w)))
-		rows := h - 1
-		if len(items) == 0 && h > 1 {
-			content = append(content, mutedStyle.Render("No recent commits for this repo"))
-		}
-		start := max(0, min(m.commitScroll, max(0, len(items)-rows)))
-		for _, c := range items[start:min(len(items), start+rows)] {
-			age := fit(shortAge(c.Commit.Date), 4)
-			content = append(content, mutedStyle.Render(age)+" "+titleStyle.Render(fit(m.repoLabelByName(c.Repo), repoW))+" "+branchStyle.Render(fit(c.Branch, branchW))+" "+mutedStyle.Render(fit(c.Commit.Author, authorW))+" "+fit(c.Commit.Msg, msgW))
-		}
-		for len(content) < h {
-			content = append(content, "")
-		}
-		return content
-	}
-	msgW := max(1, w-7-repoW-branchW)
-	content = append(content, mutedStyle.Render(fit(fmt.Sprintf("%-4s %-*s %-*s %s", "AGE", repoW, "REPO", branchW, "BRANCH", "LATEST COMMIT"), w)))
-	rows := h - 1
-	if len(items) == 0 && h > 1 {
-		message := "No recent branch-head updates"
-		if len(m.repos) == 0 {
-			message = "Waiting for repository snapshot…"
-		}
-		content = append(content, mutedStyle.Render(message))
-	}
-	start := max(0, min(m.commitScroll, max(0, len(items)-rows)))
-	for _, c := range items[start:min(len(items), start+rows)] {
-		age := fit(shortAge(c.Commit.Date), 4)
-		content = append(content, mutedStyle.Render(age)+" "+titleStyle.Render(fit(m.repoLabelByName(c.Repo), repoW))+" "+branchStyle.Render(fit(c.Branch, branchW))+" "+fit(c.Commit.Msg, msgW))
-	}
-	for len(content) < h {
-		content = append(content, "")
-	}
-	return content
+func (m model) renderActivity(w,h int) []string {
+	var items []commitActivity;scope:="";if m.detail{if r:=m.selectedRepo();r!=nil{scope=r.FullName}}
+	cut:=time.Now().Add(-7*24*time.Hour)
+	for _,repo:=range m.repos{if scope!=""&&repo.FullName!=scope{continue};for _,item:=range repo.Commits{t:=parseTime(item.Date);if t.IsZero()||t.Before(cut){continue};items=append(items,commitActivity{Repo:repo.FullName,Branch:repo.Default,Commit:item})}}
+	sort.Slice(items,func(i,j int)bool{return items[i].Commit.Date>items[j].Commit.Date})
+	content:=[]string{mutedStyle.Render(fit("AGE   REPOSITORY       ACTOR             COMMIT",w))};room:=max(0,h-1)
+	if len(items)==0{message:="No default-branch commits in the last 7 days";if m.busyCommitHistory{message="Syncing recent commit activity…"};content=append(content,mutedStyle.Render(message))}
+	start:=max(0,min(m.commitScroll,max(0,len(items)-room)))
+	for _,item:=range items[start:min(len(items),start+room)]{actor:=commitActor(item.Commit);if actor==""{actor="unknown"};line:=fmt.Sprintf("%-4s %-16s %-17s %s",fit(shortAge(item.Commit.Date),4),fit(m.repoLabelByName(item.Repo),16),fit(actor,17),item.Commit.Msg);content=append(content,fit(mutedStyle.Render(line),w))}
+	for len(content)<h{content=append(content,"")};return content
 }
-func (m model) renderActions(w, h int) []string {
-	items := m.visibleRuns()
-	content := make([]string, 0, h)
-	repoW := max(8, w/5)
-	workflowW := max(10, w/3)
-	branchW := max(8, w-15-repoW-workflowW)
-	head := fmt.Sprintf("%-7s %-4s %-*s %-*s %-*s", "STATE", "AGE", repoW, "REPO", workflowW, "WORKFLOW", branchW, "BRANCH")
-	content = append(content, mutedStyle.Render(fit(head, w)))
-	rows := h - 1
-	if len(items) == 0 && h > 1 {
-		message := "No workflow runs found"
-		if len(m.repos) == 0 {
-			message = "Waiting for Actions data…"
-		}
-		content = append(content, mutedStyle.Render(message))
-	}
-	start := max(0, min(m.runCursor-rows/2, max(0, len(items)-rows)))
-	for i := start; i < min(len(items), start+rows); i++ {
-		item := items[i]
-		line := stateStyle(item.item).Render(fit(stateText(item.item), 7)) + " " + mutedStyle.Render(fit(shortAge(item.item.UpdatedAt), 4)) + " " + titleStyle.Render(fit(item.short, repoW)) + " " + fit(item.item.Name, workflowW) + " " + branchStyle.Render(fit(item.item.Branch, branchW))
-		if i == m.runCursor {
-			line = selectStyle.Width(w).Render(fit(line, w))
-		}
-		content = append(content, line)
-	}
-	for len(content) < h {
-		content = append(content, "")
-	}
-	return content
+func (m model) renderActions(w,h int) []string {
+	items:=m.visibleRuns();ops:=make([]runRef,0,len(items))
+	for _,item:=range items{if isActive(item.item)||(item.item.Status=="completed"&&item.item.Conclusion=="failure"&&time.Since(parseTime(item.item.UpdatedAt))<=24*time.Hour){ops=append(ops,item)}}
+	content:=[]string{mutedStyle.Render(fit("STATE     REPOSITORY      WORKFLOW / BRANCH                  ACTOR       AGE",w))};room:=max(0,h-1)
+	if len(ops)==0{message:="No running or queued CI pipelines";if len(m.repos)==0{message="Waiting for repository snapshot…"};content=append(content,mutedStyle.Render(message))}
+	start:=max(0,min(m.runCursor-room/2,max(0,len(ops)-room)))
+	for i:=start;i<min(len(ops),start+room);i++{ref:=ops[i];actor:=ref.item.Actor.Login;if actor==""{actor="unknown"};workflow:=ref.item.Name;if workflow==""{workflow=ref.item.Title};branch:=ref.item.Branch;if branch==""{branch="—"}
+		detail:=workflow+" · "+branch;line:=stateStyle(ref.item).Render(fit(stateText(ref.item),9))+" "+titleStyle.Render(fit(ref.short,15))+" "+fit(detail,max(12,w-54))+" "+branchStyle.Render(fit(actor,11))+" "+mutedStyle.Render(fit(shortAge(ref.item.UpdatedAt),4))
+		if i==m.runCursor{line=selectStyle.Width(w).Render(fit(line,w))};content=append(content,fit(line,w))}
+	for len(content)<h{content=append(content,"")};return content
 }
 func stateText(r run) string {
 	switch runState(r) {
-	case "success":
-		return "✓ pass"
-	case "failure", "startup_failure", "action_required":
-		return "✗ fail"
-	case "in_progress", "queued", "waiting", "requested", "pending":
-		return "● run"
-	case "cancelled":
-		return "⊘ stop"
-	case "skipped":
-		return "– skip"
-	default:
-		return "— n/a"
+	case "success": return "✓ pass"
+	case "failure","startup_failure","action_required": return "✗ fail"
+	case "in_progress": return "● RUNNING"
+	case "queued","waiting","requested","pending": return "◷ WAITING"
+	case "cancelled": return "⊘ stop"
+	case "skipped": return "– skip"
+	default: return "— n/a"
 	}
 }
 func compactCI(r run) string {
