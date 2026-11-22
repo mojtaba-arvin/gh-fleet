@@ -1,8 +1,8 @@
 # gh-fleet
 
-A full-screen terminal **agent operations control room** for GitHub repositories and AI coding-agent workloads.
+A terminal **delivery operations console** for coordinating work across GitHub repositories, pull requests, and CI pipelines. It is designed for a human operator who needs to know what requires attention, what is waiting, and what to do next.
 
-The goal is to answer operational questions quickly: which agents are working, what they are working on, which tasks are blocked, which CI pipelines are running or queued, and what needs attention next.
+The GitHub-only mode does not claim to know whether an external coding agent is running. Connect an agent-runner event source before treating agent lifecycle status as known.
 
 ## Operations dashboard
 
@@ -38,7 +38,7 @@ True agent lifecycle state requires explicit events from the agent runner/orches
 
 - GitHub CLI installed and authenticated with gh auth login.
 - Go 1.24 or newer to build or install from source.
-- A terminal with at least 110 columns for the full dashboard. Smaller terminals use focused tabs.
+- A terminal with at least 80 columns is recommended for the side-by-side overview. The layout stacks vertically at narrower widths and supports terminals down to 40 columns.
 
 The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor.
 
@@ -60,31 +60,32 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 
 | Key | Action |
 | --- | --- |
-| Tab / Shift+Tab | Focus repositories, agent activity, or CI queue |
-| ↑ / ↓, j / k | Move through the focused list |
-| Enter on a repository | Scope the dashboard to that repository |
-| c | Open the observed actor-by-repository workload matrix |
+| Tab / Shift+Tab | Switch between Overview, Repositories, and CI queue |
+| ↑ / ↓, j / k | Move through attention items, repositories, or workflow runs |
+| Enter on an attention item | Open its GitHub PR or workflow page |
+| Enter on a repository | Open repository detail; press Enter again to return |
+| Enter on a CI run, or l | Open live workflow logs |
+| a | Open the optional GitHub identity diagnostic (not agent identity) |
 | Esc | Return from repository or log detail |
-| / | Filter repository names |
-| Enter on a CI run or l | Open that run's logs |
-| w | Pause or resume log refresh |
-| u | Refresh the selected run's logs now |
-| r | Refresh the dashboard; in repository detail, refresh that repository |
-| o | Open the selected repository or workflow in a browser |
+| / | Filter repositories |
+| w | Pause or resume live log refresh |
+| u | Refresh selected workflow logs now |
+| r | Refresh repository and Actions data |
+| o | Open the selected GitHub page in a browser |
 | ? | Show help |
 | q | Quit |
 
 ## Refresh and network behavior
 
-- Repository metadata, branch heads, PR counts, and issue counts refresh every 3 minutes.
-- GitHub Actions runs refresh every 60 seconds, with at most four concurrent repository requests.
-- Default-branch commit history is paginated over 30 days; active-branch history samples up to 20 commits per branch. Activity history refreshes every 5 minutes with at most four concurrent repository requests.
-- In repository detail, Actions data refreshes every 20 seconds; full branch history refreshes every 5 minutes.
+- Repository metadata, branch heads, open PR/review summaries, and issue counts refresh every 3 minutes.
+- GitHub Actions runs refresh every 60 seconds, with at most four concurrent repository requests. In repository detail, the selected repository's Actions data refreshes every 20 seconds.
+- The overview does not fetch commit history or expanded branch history. The optional `a` identity diagnostic loads 30-day commit history and sampled feature-branch history on demand, at most four repositories concurrently; that history refreshes every 5 minutes while the diagnostic is open.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
+- The UI checks refresh schedules every 15 seconds; this is not a real-time agent-state guarantee.
 - Actions requests use ETags when GitHub provides them. Failed requests use exponential backoff and cached data remains visible.
-- The account overview fetches up to 100 branch heads per repository and paginates when needed. Activity counts deduplicate commits by SHA across branches.
+- The account overview reads up to 100 branch heads per repository and paginates when needed. Diagnostic activity counts deduplicate commits by SHA across branches.
 
-Press r for an immediate refresh. These are GitHub data refresh intervals, not real-time agent-state guarantees. GitHub recommends webhooks over polling when a reachable integration service is available; see the design document for a future relay path.
+Press `r` for an immediate refresh. For multi-machine, near-real-time agent status, use an authenticated event relay; a GitHub-only terminal client cannot observe work that has not produced a GitHub event.
 
 ## Data and privacy
 
