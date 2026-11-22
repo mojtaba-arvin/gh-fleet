@@ -155,7 +155,7 @@ func TestRepoWorkloadCountsUniqueCommitsAndAttributesActors(t *testing.T) {
 			{SHA: "b", Date: "2026-11-20T11:00:00Z", AuthorLogin: "agent-b"},
 			{SHA: "old", Date: "2026-11-10T11:00:00Z", AuthorLogin: "old-agent"},
 		},
-		Runs: []run{{Status: "in_progress", Actor: struct {
+		Runs: []run{{Status: "in_progress", UpdatedAt: now.Format(time.RFC3339), Actor: struct {
 			Login string `json:"login"`
 		}{Login: "ci-actor"}}},
 	}
