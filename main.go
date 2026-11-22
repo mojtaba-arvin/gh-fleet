@@ -66,25 +66,25 @@ type run struct {
 }
 
 type repository struct {
-	FullName        string       `json:"full_name"`
-	Name            string       `json:"name"`
-	URL             string       `json:"url"`
-	Private         bool         `json:"private"`
-	Fork            bool         `json:"fork"`
-	Stars           int          `json:"stars"`
-	Forks           int          `json:"forks"`
-	PushedAt        string       `json:"pushed_at"`
-	Default         string       `json:"default_branch"`
-	PRs             int          `json:"open_prs"`
-	Issues          int          `json:"open_issues"`
-	BranchN         int          `json:"branch_count"`
-	Branches        []branch     `json:"branches"`
+	FullName          string       `json:"full_name"`
+	Name              string       `json:"name"`
+	URL               string       `json:"url"`
+	Private           bool         `json:"private"`
+	Fork              bool         `json:"fork"`
+	Stars             int          `json:"stars"`
+	Forks             int          `json:"forks"`
+	PushedAt          string       `json:"pushed_at"`
+	Default           string       `json:"default_branch"`
+	PRs               int          `json:"open_prs"`
+	Issues            int          `json:"open_issues"`
+	BranchN           int          `json:"branch_count"`
+	Branches          []branch     `json:"branches"`
 	Commits           []commitInfo `json:"commits,omitempty"`
 	CommitHistoryDays int          `json:"commit_history_days,omitempty"`
 	Runs              []run        `json:"runs"`
-	Fetched         time.Time    `json:"fetched"`
-	BranchesFetched time.Time    `json:"branches_fetched"`
-	CommitsFetched  time.Time    `json:"commits_fetched"`
+	Fetched           time.Time    `json:"fetched"`
+	BranchesFetched   time.Time    `json:"branches_fetched"`
+	CommitsFetched    time.Time    `json:"commits_fetched"`
 }
 
 type diskCache struct {
@@ -393,32 +393,49 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 }
 
 func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]commitInfo, error) {
-	if repo.Default == "" { return nil, nil }
+	if repo.Default == "" {
+		return nil, nil
+	}
 	since := time.Now().AddDate(-1, 0, 0).UTC().Format(time.RFC3339)
 	var commits []commitInfo
 	for page := 1; ; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100&page=%d",
 			apiRoot, repo.FullName, url.QueryEscape(repo.Default), url.QueryEscape(since), page)
 		resp, err := c.request(ctx, http.MethodGet, endpoint, nil, "")
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			err = responseError(resp); resp.Body.Close(); return nil, err
+			err = responseError(resp)
+			resp.Body.Close()
+			return nil, err
 		}
 		var data []struct {
-			SHA string `json:"sha"`
+			SHA    string `json:"sha"`
 			Commit struct {
-				Committer struct { Date string `json:"date"` } `json:"committer"`
+				Committer struct {
+					Date string `json:"date"`
+				} `json:"committer"`
 				Message string `json:"message"`
-				Author struct { Name string `json:"name"` } `json:"author"`
+				Author  struct {
+					Name string `json:"name"`
+				} `json:"author"`
 			} `json:"commit"`
 		}
-		err = json.NewDecoder(resp.Body).Decode(&data); resp.Body.Close()
-		if err != nil { return nil, fmt.Errorf("decode commit history for %s: %w", repo.FullName, err) }
-		for _, item := range data {
-			commits = append(commits, commitInfo{SHA:item.SHA, Date:item.Commit.Committer.Date,
-				Msg:strings.SplitN(item.Commit.Message, "\n", 2)[0], Author:item.Commit.Author.Name})
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("decode commit history for %s: %w", repo.FullName, err)
 		}
-		if len(data) < 100 { break }
+		for _, item := range data {
+			commits = append(commits, commitInfo{
+				SHA: item.SHA, Date: item.Commit.Committer.Date,
+				Msg: strings.SplitN(item.Commit.Message, "\n", 2)[0], Author: item.Commit.Author.Name,
+			})
+		}
+		if len(data) < 100 {
+			break
+		}
 	}
 	return commits, nil
 }
@@ -669,7 +686,9 @@ func newModel(client *apiClient, cachePath string) model {
 	var refsAt, runsAt, commitsAt time.Time
 	needsYearHistory := false
 	for _, r := range c.Repos {
-		if r.CommitHistoryDays < 365 { needsYearHistory = true }
+		if r.CommitHistoryDays < 365 {
+			needsYearHistory = true
+		}
 		if r.CommitsFetched.After(commitsAt) {
 			commitsAt = r.CommitsFetched
 		}
@@ -680,7 +699,9 @@ func newModel(client *apiClient, cachePath string) model {
 			runsAt = r.Fetched
 		}
 	}
-	if needsYearHistory { commitsAt = time.Time{} }
+	if needsYearHistory {
+		commitsAt = time.Time{}
+	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
 		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt}
@@ -1019,12 +1040,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busyRepos = true
 			cmds = append(cmds, fetchReposCmd(m.api))
 		}
-		needsYearHistory := false
-		for _, repo := range m.repos {
-			if repo.CommitHistoryDays < 365 { needsYearHistory = true; break }
-		}
 		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
-			(needsYearHistory || m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
@@ -1842,20 +1859,26 @@ func (m model) chartRepos() []*repository {
 	}
 	now := time.Now().UTC()
 	period := m.commitPeriod
-	if period != 7 && period != 365 { period = 24 }
+	if period != 7 && period != 365 {
+		period = 24
+	}
 	if period == 365 {
 		active := repos[:0]
 		for _, repo := range repos {
-			if repoYearTotal(*repo, now) > 0 { active = append(active, repo) }
+			if repoYearTotal(*repo, now) > 0 {
+				active = append(active, repo)
+			}
 		}
 		repos = active
 	}
 	sort.SliceStable(repos, func(i, j int) bool {
 		a, b := 0, 0
 		if period == 365 {
-			a, b = repoYearTotal(*repos[i], now), repoYearTotal(*repos[j], now)
+			a = repoYearTotal(*repos[i], now)
+			b = repoYearTotal(*repos[j], now)
 		} else {
-			a, b = sumInts(repoCommitBuckets(*repos[i], now, period)), sumInts(repoCommitBuckets(*repos[j], now, period))
+			a = sumInts(repoCommitBuckets(*repos[i], now, period))
+			b = sumInts(repoCommitBuckets(*repos[j], now, period))
 		}
 		if a != b {
 			return a > b
@@ -1898,17 +1921,21 @@ func repoCommitBuckets(repo repository, now time.Time, period int) []int {
 
 func repoYearDailyCounts(repo repository, now time.Time) map[string]int {
 	counts := make(map[string]int)
-	start := now.UTC().Truncate(24*time.Hour).AddDate(-1, 0, 0)
+	start := now.UTC().Truncate(24 * time.Hour).AddDate(-1, 0, 0)
 	for _, item := range repo.Commits {
 		t, err := time.Parse(time.RFC3339, item.Date)
-		if err == nil && !t.Before(start) && !t.After(now) { counts[t.UTC().Format("2006-01-02")]++ }
+		if err == nil && !t.Before(start) && !t.After(now) {
+			counts[t.UTC().Format("2006-01-02")]++
+		}
 	}
 	return counts
 }
 
 func repoYearTotal(repo repository, now time.Time) int {
 	total := 0
-	for _, count := range repoYearDailyCounts(repo, now) { total += count }
+	for _, count := range repoYearDailyCounts(repo, now) {
+		total += count
+	}
 	return total
 }
 
@@ -1918,36 +1945,54 @@ func calendarHeatmapRows(repo repository, now time.Time, widthLimit int) []strin
 	now = now.UTC()
 	counts := repoYearDailyCounts(repo, now)
 	maxCount := 0
-	for _, count := range counts { maxCount = max(maxCount, count) }
-	colors := []lipgloss.Color{lipgloss.Color("#45475a"), lipgloss.Color("#315b46"), lipgloss.Color("#3d8058"), lipgloss.Color("#55a96b"), lipgloss.Color("#8bd49c")}
+	for _, count := range counts {
+		maxCount = max(maxCount, count)
+	}
+	colors := []lipgloss.Color{
+		lipgloss.Color("#45475a"),
+		lipgloss.Color("#315b46"),
+		lipgloss.Color("#3d8058"),
+		lipgloss.Color("#55a96b"),
+		lipgloss.Color("#8bd49c"),
+	}
 	glyphs := []string{"·", "░", "▒", "▓", "█"}
-	gridStart := now.Truncate(24*time.Hour).AddDate(-1, 0, 0)
-	gridStart = gridStart.Add(-time.Duration(gridStart.Weekday())*24*time.Hour)
+	gridStart := now.Truncate(24 * time.Hour).AddDate(-1, 0, 0)
+	gridStart = gridStart.Add(-time.Duration(gridStart.Weekday()) * 24 * time.Hour)
 	monthLine := []rune(strings.Repeat(" ", weeks))
 	lastMonth := time.Month(0)
-	for week:=0; week<weeks; week++ {
-		date := gridStart.Add(time.Duration(week*7)*24*time.Hour)
-		if date.Month()!=lastMonth {
-			for offset,ch := range date.Format("Jan") { if week+offset<len(monthLine) { monthLine[week+offset]=ch } }
-			lastMonth=date.Month()
+	for week := 0; week < weeks; week++ {
+		date := gridStart.Add(time.Duration(week*7) * 24 * time.Hour)
+		if date.Month() != lastMonth {
+			for offset, ch := range date.Format("Jan") {
+				if week+offset < len(monthLine) {
+					monthLine[week+offset] = ch
+				}
+			}
+			lastMonth = date.Month()
 		}
 	}
-	rows := []string{mutedStyle.Render(strings.TrimRight(string(monthLine)," "))}
-	for weekday:=0; weekday<7; weekday++ {
+	rows := []string{mutedStyle.Render(strings.TrimRight(string(monthLine), " "))}
+	for weekday := 0; weekday < 7; weekday++ {
 		var line strings.Builder
-		for week:=0; week<weeks; week++ {
-			date:=gridStart.Add(time.Duration(week*7+weekday)*24*time.Hour)
-			count:=counts[date.Format("2006-01-02")]
-			level:=0
-			if count>0 {
-				level=1
-				if maxCount>1 { level=min(4,1+(count-1)*4/maxCount) }
+		for week := 0; week < weeks; week++ {
+			date := gridStart.Add(time.Duration(week*7+weekday) * 24 * time.Hour)
+			count := counts[date.Format("2006-01-02")]
+			level := 0
+			if count > 0 {
+				level = 1
+				if maxCount > 1 {
+					level = min(4, 1+(count-1)*4/maxCount)
+				}
 			}
 			line.WriteString(lipgloss.NewStyle().Foreground(colors[level]).Render(glyphs[level]))
 		}
-		rows=append(rows,line.String())
+		rows = append(rows, line.String())
 	}
-	if widthLimit>0 && widthLimit<weeks { for i:=range rows { rows[i]=fit(rows[i],widthLimit) } }
+	if widthLimit > 0 && widthLimit < weeks {
+		for i := range rows {
+			rows[i] = fit(rows[i], widthLimit)
+		}
+	}
 	return rows
 }
 
@@ -1976,25 +2021,43 @@ func (m model) commitChartsView() string {
 	}
 	now := time.Now().UTC()
 	period := m.commitPeriod
-	if period != 7 && period != 365 { period = 24 }
+	if period != 7 && period != 365 {
+		period = 24
+	}
 	periodLabel := "24 HOURS  /  HOURLY"
-	if period == 7 { periodLabel = "7 DAYS  /  DAILY" } else if period == 365 { periodLabel = "1 YEAR  /  DAILY CALENDAR" }
+	if period == 7 {
+		periodLabel = "7 DAYS  /  DAILY"
+	} else if period == 365 {
+		periodLabel = "1 YEAR  /  DAILY CALENDAR"
+	}
 	head := m.renderHeader(w)
 	selector := titleStyle.Render("REPOSITORY ACTIVITY") + "   "
-	selector += " "
-	for _, option := range []struct{ key, label string; period int }{{"1","24H",24},{"2","7D",7},{"3","1Y",365}} {
-		label := " "+option.key+" "+option.label+" "
-		if period==option.period { selector += selectStyle.Render(label) } else { selector += mutedStyle.Render(label) }
+	for _, option := range []struct {
+		key, label string
+		period     int
+	}{{"1", "24H", 24}, {"2", "7D", 7}, {"3", "1Y", 365}} {
+		label := " " + option.key + " " + option.label + " "
+		if period == option.period {
+			selector += selectStyle.Render(label)
+		} else {
+			selector += mutedStyle.Render(label)
+		}
 	}
 	selector += "   " + mutedStyle.Render(periodLabel)
 
 	repos := m.chartRepos()
 	if len(repos) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render("No repositories available in this scope."), "Esc to return")
+		message := "No repositories available in this scope."
+		if period == 365 {
+			message = "No repository has commit activity in the last year."
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render(message), "Esc to return")
 	}
 	chartH := 4
 	cardH := chartH + 6
-	if period == 365 { cardH = 9 }
+	if period == 365 {
+		cardH = 9
+	}
 	visible := max(1, (h-7)/(cardH+3))
 	maxStart := max(0, len(repos)-visible)
 	startIndex := min(m.chartScroll, maxStart)
@@ -2002,7 +2065,9 @@ func (m model) commitChartsView() string {
 	chartW := max(48, w-10)
 	scaleMax := 1
 	if period != 365 {
-		for _, repo := range repos { scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period))) }
+		for _, repo := range repos {
+			scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period)))
+		}
 	}
 
 	var cards []string
@@ -2030,12 +2095,16 @@ func (m model) commitChartsView() string {
 			activeDays := len(repoYearDailyCounts(*repo, now))
 			meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(fmt.Sprintf("%d COMMITS", total)) +
 				mutedStyle.Render(fmt.Sprintf("   ACTIVE %d/365 DAYS   ·   %s", activeDays, fit(branch, 20)))
-			if repo.CommitHistoryDays < 365 { meta += mutedStyle.Render("   ·   HISTORY SYNCING") }
+			if repo.CommitHistoryDays < 365 {
+				meta += mutedStyle.Render("   ·   HISTORY SYNCING")
+			}
 			content = append(content, meta)
 			content = append(content, calendarHeatmapRows(*repo, now, 53)...)
 		} else {
 			status := fmt.Sprintf("%d COMMITS", total)
-			if repo.CommitsFetched.IsZero() { status = "HISTORY LOADING" }
+			if repo.CommitsFetched.IsZero() {
+				status = "HISTORY LOADING"
+			}
 			meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(status) +
 				mutedStyle.Render(fmt.Sprintf("   PEAK %d / BUCKET   ·   ACTIVE %d/%d BUCKETS   ·   %s", peak, active, len(values), fit(branch, 20)))
 			content = []string{meta, ""}
