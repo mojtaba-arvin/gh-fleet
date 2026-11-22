@@ -100,6 +100,8 @@ The default GitHub-only mode remains unchanged. To display real runner-reported 
 
 Alternatively set `GH_FLEET_AGENT_EVENTS`. The CLI flag takes precedence. The runner/orchestrator appends the documented lifecycle events; gh-fleet reads them every five seconds and never sends commands to agents. The file is local, read-only to gh-fleet, capped at 4 MiB, and is not copied into the GitHub metadata cache. Keep prompts, model reasoning, tool arguments/results, file contents, environment variables, and secrets out of the event stream.
 
+For Python-based runners, the repository includes a dependency-free producer SDK. Install it with `python -m pip install ./integrations/python`, then use `AgentTelemetry` to emit lifecycle callbacks or wrap a task in `with telemetry.task():` for automatic start, heartbeat, and terminal events. See [the Python SDK guide](integrations/python/README.md) for examples and security behavior.
+
 ## Data and privacy
 
 gh-fleet calls the GitHub API directly. It obtains the active github.com token by running gh auth token; it does not write or print that token. The token is not included in the cache.
