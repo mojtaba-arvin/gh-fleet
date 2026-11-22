@@ -72,7 +72,7 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 - GitHub Actions runs refresh every 60 seconds, with at most four concurrent repository requests.
 - Default-branch commit activity covers the previous 30 days and is paginated in batches of 100 commits.
 - Recent commit histories from all branches are fetched for repositories pushed within the last 30 days, with up to 20 commits per branch and at most four concurrent repository requests; branch history refreshes every 3 minutes.
-- The repository table shows 24-hour / 7-day / 30-day unique commit counts, 30-day distinct contributors, and branches active in the last 7 days. A ~ prefix marks a branch sample that reached its limit.
+- The repository table shows 24-hour / 7-day / 30-day unique commit counts, 30-day distinct contributors, and branches active in the last 7 days. A ~ prefix marks incomplete history or a branch sample that reached its limit.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
 - Actions requests use ETags when GitHub provides them. Failed requests use exponential backoff and cached data remains visible.
