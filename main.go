@@ -26,23 +26,26 @@ import (
 )
 
 const (
-	apiRoot             = "https://api.github.com"
-	graphQLURL          = "https://api.github.com/graphql"
-	allRefreshInterval  = 60 * time.Second
-	refsRefreshInterval = 180 * time.Second
-	selectedInterval    = 20 * time.Second
-	logRefreshInterval  = 15 * time.Second
-	maxLogBytes         = 2 << 20
+	apiRoot                 = "https://api.github.com"
+	graphQLURL              = "https://api.github.com/graphql"
+	allRefreshInterval      = 60 * time.Second
+	refsRefreshInterval     = 180 * time.Second
+	activityRefreshInterval = 5 * time.Minute
+	selectedInterval        = 20 * time.Second
+	logRefreshInterval      = 15 * time.Second
+	maxLogBytes             = 2 << 20
+	activityHistoryDays     = 30
 )
 
 var version = "dev"
 
 type branch struct {
-	Name    string       `json:"name"`
-	SHA     string       `json:"sha"`
-	Date    string       `json:"date"`
-	Msg     string       `json:"message"`
-	History []commitInfo `json:"history"`
+	Name             string       `json:"name"`
+	SHA              string       `json:"sha"`
+	Date             string       `json:"date"`
+	Msg              string       `json:"message"`
+	History          []commitInfo `json:"history"`
+	HistoryTruncated bool         `json:"history_truncated,omitempty"`
 }
 
 type commitInfo struct {
@@ -332,9 +335,9 @@ func (c *apiClient) fetchRuns(ctx context.Context, fullName string) ([]run, erro
 }
 
 func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) ([]branch, string, error) {
-	query := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp!){repository(owner:$owner,name:$name){refs(refPrefix:"refs/heads/",first:100,after:$after){nodes{name target{...on Commit{oid committedDate messageHeadline history(first:10,since:$since){nodes{oid committedDate messageHeadline author{name user{login}}}}}}}pageInfo{hasNextPage endCursor}}}}`
+	query := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp!){repository(owner:$owner,name:$name){refs(refPrefix:"refs/heads/",first:100,after:$after){nodes{name target{...on Commit{oid committedDate messageHeadline history(first:20,since:$since){nodes{oid committedDate messageHeadline author{name user{login}}}pageInfo{hasNextPage}}}}}pageInfo{hasNextPage endCursor}}}}`
 	parts := strings.SplitN(fullName, "/", 2)
-	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-time.Duration(activityHistoryDays) * 24 * time.Hour).UTC().Format(time.RFC3339)
 	payload, _ := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"owner": parts[0], "name": parts[1], "after": nullable(after), "since": since}})
 	resp, err := c.request(ctx, http.MethodPost, graphQLURL, bytes.NewReader(payload), "")
 	if err != nil {
@@ -367,6 +370,9 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 										} `json:"user"`
 									} `json:"author"`
 								} `json:"nodes"`
+								Page struct {
+									More bool `json:"hasNextPage"`
+								} `json:"pageInfo"`
 							} `json:"history"`
 						} `json:"target"`
 					} `json:"nodes"`
@@ -391,7 +397,7 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 	}
 	var result []branch
 	for _, n := range data.Data.Repository.Refs.Nodes {
-		br := branch{Name: n.Name, SHA: n.Target.OID, Date: n.Target.Date, Msg: n.Target.Message}
+		br := branch{Name: n.Name, SHA: n.Target.OID, Date: n.Target.Date, Msg: n.Target.Message, HistoryTruncated: n.Target.History.Page.More}
 		for _, c := range n.Target.History.Nodes {
 			br.History = append(br.History, commitInfo{SHA: c.OID, Date: c.Date, Msg: c.Message, Author: c.Author.Name, AuthorLogin: c.Author.User.Login})
 		}
@@ -407,7 +413,7 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 	if repo.Default == "" {
 		return nil, nil
 	}
-	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-time.Duration(activityHistoryDays) * 24 * time.Hour).UTC().Format(time.RFC3339)
 	var commits []commitInfo
 	for page := 1; ; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100&page=%d",
@@ -760,10 +766,10 @@ func newModel(client *apiClient, cachePath string) model {
 		client.cache[r.FullName] = append([]run(nil), r.Runs...)
 	}
 	var refsAt, runsAt, commitsAt, branchHistoryAt time.Time
-	needsYearHistory := false
+	needsActivityHistory := false
 	for _, r := range c.Repos {
-		if r.CommitHistoryDays < 7 {
-			needsYearHistory = true
+		if r.CommitHistoryDays < activityHistoryDays {
+			needsActivityHistory = true
 		}
 		if r.CommitsFetched.After(commitsAt) {
 			commitsAt = r.CommitsFetched
@@ -771,14 +777,14 @@ func newModel(client *apiClient, cachePath string) model {
 		if r.BranchesFetched.After(refsAt) {
 			refsAt = r.BranchesFetched
 		}
-		if r.BranchHistoryDays >= 7 && r.BranchesFetched.After(branchHistoryAt) {
+		if r.BranchHistoryDays >= activityHistoryDays && r.BranchesFetched.After(branchHistoryAt) {
 			branchHistoryAt = r.BranchesFetched
 		}
 		if r.Fetched.After(runsAt) {
 			runsAt = r.Fetched
 		}
 	}
-	if needsYearHistory {
+	if needsActivityHistory {
 		commitsAt = time.Time{}
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
@@ -917,7 +923,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							delete(m.queuedRuns, r.FullName)
 						}
 						m.queueRun(r.FullName, true)
-						if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= selectedInterval) && !m.busyBranches[r.FullName] {
+						if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= activityRefreshInterval) && !m.busyBranches[r.FullName] {
 							m.busyBranches[r.FullName] = true
 							cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
 						}
@@ -1055,7 +1061,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.drainRunQueue()...)
 			needsBranchHistory := false
 			for _, repo := range m.repos {
-				if repo.BranchHistoryDays < 7 || repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= refsRefreshInterval {
+				if repo.BranchHistoryDays < activityHistoryDays || repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= activityRefreshInterval {
 					needsBranchHistory = true
 					break
 				}
@@ -1097,7 +1103,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.Branches = msg.branches
 			r.BranchN = len(msg.branches)
 			r.BranchesFetched = time.Now()
-			r.BranchHistoryDays = 7
+			r.BranchHistoryDays = activityHistoryDays
 			saveCache(m)
 		}
 	case branchHistoryMsg:
@@ -1115,13 +1121,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.Branches = items
 				r.BranchN = max(r.BranchN, len(items))
 				r.BranchesFetched = now
-				r.BranchHistoryDays = 7
+				r.BranchHistoryDays = activityHistoryDays
 			}
 		}
 		for name := range msg.skipped {
 			if r := m.repoByName(name); r != nil {
 				r.BranchesFetched = now
-				r.BranchHistoryDays = 7
+				r.BranchHistoryDays = activityHistoryDays
 			}
 		}
 		m.lastBranchHistory = now
@@ -1134,7 +1140,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for name, items := range msg.commits {
 			if r := m.repoByName(name); r != nil {
 				r.Commits = items
-				r.CommitHistoryDays = 7
+				r.CommitHistoryDays = activityHistoryDays
 				r.CommitsFetched = time.Now()
 			}
 		}
@@ -1164,19 +1170,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchReposCmd(m.api))
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
-			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= activityRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
 		needsBranchHistory := false
 		for _, repo := range m.repos {
-			if repo.BranchHistoryDays < 7 {
+			if repo.BranchHistoryDays < activityHistoryDays {
 				needsBranchHistory = true
 				break
 			}
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
-			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) &&
+			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= activityRefreshInterval) &&
 			!now.Before(m.retryAt["branch-history"]) {
 			m.busyBranchHistory = true
 			cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
@@ -1194,7 +1200,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.queueRun(r.FullName, selected)
 			}
 			branchKey := "branches:" + r.FullName
-			if selected && !m.busyBranches[r.FullName] && (r.BranchesFetched.IsZero() || now.Sub(r.BranchesFetched) >= selectedInterval) && !now.Before(m.retryAt[branchKey]) {
+			if selected && !m.busyBranches[r.FullName] && (r.BranchesFetched.IsZero() || now.Sub(r.BranchesFetched) >= activityRefreshInterval) && !now.Before(m.retryAt[branchKey]) {
 				m.busyBranches[r.FullName] = true
 				cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
 			}
@@ -1467,7 +1473,7 @@ func repoCommitActivity(repo repository, now time.Time) []commitActivity {
 	seen := make(map[string]bool)
 	add := func(item commitInfo, branchName string) {
 		t := parseTime(item.Date)
-		if t.IsZero() || t.After(now) || now.Sub(t) > 7*24*time.Hour {
+		if t.IsZero() || t.After(now) || now.Sub(t) > activityHistoryDays*24*time.Hour {
 			return
 		}
 		key := item.SHA
@@ -1498,28 +1504,12 @@ func repoCommitActivity(repo repository, now time.Time) []commitActivity {
 
 func commits(repos []repository, scope string) []commitActivity {
 	var out []commitActivity
-	seen := map[string]bool{}
-	cut := time.Now().Add(-30 * 24 * time.Hour)
-	for _, r := range repos {
-		if scope != "" && r.FullName != scope {
+	now := time.Now()
+	for _, repo := range repos {
+		if scope != "" && repo.FullName != scope {
 			continue
 		}
-		for _, b := range r.Branches {
-			c := commitInfo{SHA: b.SHA, Date: b.Date, Msg: b.Msg}
-			dt, err := time.Parse(time.RFC3339, c.Date)
-			if err != nil || dt.Before(cut) {
-				continue
-			}
-			key := r.FullName + ":" + c.SHA
-			if c.SHA == "" {
-				key = r.FullName + ":" + b.Name + ":" + c.Date
-			}
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, commitActivity{Repo: r.FullName, Branch: b.Name, Commit: c})
-		}
+		out = append(out, repoCommitActivity(repo, now)...)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Commit.Date > out[j].Commit.Date })
 	return out
@@ -1657,7 +1647,9 @@ func metric(label, value, detail string, color lipgloss.Color, w int) string {
 	return box("", []string{top, mid, bot}, w, 5, false)
 }
 func (m model) renderMetrics(w int) string {
-	var working, running, waiting, failed, commits24 int
+	var active, running, waiting, failed, commits30d int
+	contributors := map[string]bool{}
+	partialActivity := false
 	now := time.Now()
 	for _, repo := range m.repos {
 		if m.detail {
@@ -1667,9 +1659,13 @@ func (m model) renderMetrics(w int) string {
 			}
 		}
 		work := repoWorkload(repo, now)
-		commits24 += work.Commits24h
-		if work.Commits24h > 0 || runningRuns(repo) > 0 || queuedRuns(repo) > 0 {
-			working++
+		commits30d += work.Commits30d
+		partialActivity = partialActivity || work.ActivitySampled
+		for _, actor := range work.Actors {
+			contributors[actor] = true
+		}
+		if work.Commits7d > 0 || runningRuns(repo) > 0 || queuedRuns(repo) > 0 {
+			active++
 		}
 		for _, item := range repo.Runs {
 			if item.Status == "in_progress" {
@@ -1691,17 +1687,36 @@ func (m model) renderMetrics(w int) string {
 		}
 	}
 	cw := (w - 4) / 5
+	ciColor := green
+	if failed > 0 {
+		ciColor = red
+	} else if running > 0 || waiting > 0 {
+		ciColor = yellow
+	}
+	coverage := 0
+	for _, repo := range m.repos {
+		if repo.CommitHistoryDays >= activityHistoryDays && repo.BranchHistoryDays >= activityHistoryDays {
+			coverage++
+		}
+	}
+	if m.detail {
+		if selected := m.selectedRepo(); selected != nil {
+			coverage = 0
+			if selected.CommitHistoryDays >= activityHistoryDays && selected.BranchHistoryDays >= activityHistoryDays {
+				coverage = 1
+			}
+		}
+	}
+	activityPrefix := ""
+	if partialActivity {
+		activityPrefix = "~"
+	}
 	items := []string{
 		metric("REPOSITORIES", strconv.Itoa(repoCount), "monitored", cyan, cw),
-		metric("WORKING REPOS", strconv.Itoa(working), fmt.Sprintf("%d commits · 24h", commits24), purple, cw),
-		metric("CI RUNNING", strconv.Itoa(running), "in progress now", yellow, cw),
-		metric("CI WAITING", strconv.Itoa(waiting), "queued · waiting · pending", blue, cw),
-		metric("CI FAILURES", strconv.Itoa(failed), "failed · last 24h", func() lipgloss.Color {
-			if failed > 0 {
-				return red
-			}
-			return green
-		}(), cw),
+		metric("ACTIVE REPOS", strconv.Itoa(active), "activity or CI · 7d", purple, cw),
+		metric("COMMITS · 30D", activityPrefix+countFmt(commits30d), fmt.Sprintf("%d/%d repos covered", coverage, repoCount), blue, cw),
+		metric("CONTRIBUTORS", activityPrefix+countFmt(len(contributors)), "unique commit authors · 30d", cyan, cw),
+		metric("CI · RUN / WAIT", fmt.Sprintf("%d / %d", running, waiting), fmt.Sprintf("%d failures · 24h", failed), ciColor, cw),
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithSpaces(items, 1)...)
 }
@@ -1737,7 +1752,7 @@ func (m model) activityTitle() string {
 			return "RECENT COMMITS · " + m.repoLabel(r) + " · 30D"
 		}
 	}
-	return "RECENT AGENT ACTIVITY · LAST 7 DAYS"
+	return "RECENT REPOSITORY ACTIVITY · LAST 30 DAYS"
 }
 func (m model) actionsTitle() string {
 	if m.detail {
@@ -1797,9 +1812,9 @@ func countFmt(n int) string {
 func (m model) renderRepos(w, h int) []string {
 	rows := m.visibleRepos()
 	content := make([]string, 0, h)
-	nameW := max(10, w/4)
-	workW, trendW, actorW, ciW, prW := 10, 7, max(7, w/7), 12, 4
-	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H / 7D", trendW, "TREND", actorW, "ACTORS", ciW, "CI", prW, "PR")
+	nameW := max(10, w/5)
+	workW, trendW, peopleW, branchW, ciW, prW := 14, 7, 5, 3, 10, 3
+	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H/7D/30D", trendW, "TREND", peopleW, "PPL", branchW, "BR", ciW, "CI", prW, "PR")
 	content = append(content, mutedStyle.Render(fit(header, w)))
 	room := max(0, h-1)
 	if len(rows) == 0 {
@@ -1813,15 +1828,16 @@ func (m model) renderRepos(w, h int) []string {
 	for i := start; i < min(len(rows), start+room); i++ {
 		r := rows[i]
 		work := repoWorkload(*r, time.Now())
-		actors := strings.Join(work.Actors, ",")
-		if actors == "" {
-			actors = "—"
+		approx := ""
+		if work.ActivitySampled {
+			approx = "~"
 		}
 		ci := repoCI(*r)
 		line := titleStyle.Render(fit(m.repoLabel(r), nameW)) + " " +
-			mutedStyle.Render(fit(fmt.Sprintf("%d/%d", work.Commits24h, work.Commits7d), workW)) + " " +
+			mutedStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
 			branchStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
-			mutedStyle.Render(fit(actors, actorW)) + " " +
+			mutedStyle.Render(fit(approx+countFmt(len(work.Actors)), peopleW)) + " " +
+			mutedStyle.Render(fit(countFmt(work.ActiveBranches7d), branchW)) + " " +
 			ciStyle(ci).Render(fit(ci, ciW)) + " " +
 			mutedStyle.Render(fit(countFmt(r.PRs), prW))
 		if i == m.cursor {
@@ -1880,10 +1896,12 @@ func repoCI(repo repository) string {
 }
 
 type repoWork struct {
-	Commits24h, Commits7d int
-	Daily                 []int
-	Actors                []string
-	LastCommit            time.Time
+	Commits24h, Commits7d, Commits30d int
+	ActiveBranches7d                  int
+	Daily                             []int
+	Actors                            []string
+	LastCommit                        time.Time
+	ActivitySampled                   bool
 }
 
 func commitActor(item commitInfo) string {
@@ -1892,28 +1910,31 @@ func commitActor(item commitInfo) string {
 	}
 	return item.Author
 }
+
 func repoWorkload(repo repository, now time.Time) repoWork {
-	out := repoWork{Daily: make([]int, 7)}
-	seen := map[string]bool{}
+	out := repoWork{Daily: make([]int, 7), ActivitySampled: repo.CommitHistoryDays < activityHistoryDays || repo.BranchHistoryDays < activityHistoryDays}
 	actors := map[string]bool{}
+	activeBranches := map[string]bool{}
+	for _, br := range repo.Branches {
+		if br.HistoryTruncated {
+			out.ActivitySampled = true
+		}
+	}
 	for _, activity := range repoCommitActivity(repo, now) {
 		item := activity.Commit
 		t := parseTime(item.Date)
-		key := item.SHA
-		if key == "" {
-			key = item.Date + ":" + item.Msg + ":" + commitActor(item)
+		out.Commits30d++
+		age := now.Sub(t)
+		if age <= 7*24*time.Hour {
+			out.Commits7d++
+			activeBranches[activity.Branch] = true
 		}
-		if seen[key] {
-			continue
+		if age < 24*time.Hour {
+			out.Commits24h++
 		}
-		seen[key] = true
-		out.Commits7d++
 		day := int(now.UTC().Truncate(24*time.Hour).Sub(t.UTC().Truncate(24*time.Hour)) / (24 * time.Hour))
 		if day >= 0 && day < 7 {
 			out.Daily[6-day]++
-		}
-		if now.Sub(t) < 24*time.Hour {
-			out.Commits24h++
 		}
 		if t.After(out.LastCommit) {
 			out.LastCommit = t
@@ -1922,12 +1943,7 @@ func repoWorkload(repo repository, now time.Time) repoWork {
 			actors[actor] = true
 		}
 	}
-	for _, item := range repo.Runs {
-		updated := parseTime(item.UpdatedAt)
-		if item.Actor.Login != "" && !updated.IsZero() && now.Sub(updated) <= 7*24*time.Hour {
-			actors[item.Actor.Login] = true
-		}
-	}
+	out.ActiveBranches7d = len(activeBranches)
 	for actor := range actors {
 		out.Actors = append(out.Actors, actor)
 	}
@@ -1948,7 +1964,8 @@ func commitCounts(repos []repository, now time.Time) ([]int, []int) {
 	hourly, daily := make([]int, 24), make([]int, 7)
 	seen := make(map[string]bool)
 	for _, repo := range repos {
-		for _, item := range repo.Commits {
+		for _, activity := range repoCommitActivity(repo, now) {
+			item := activity.Commit
 			t, err := time.Parse(time.RFC3339, item.Date)
 			if err != nil || t.After(now) || now.Sub(t) >= 7*24*time.Hour {
 				continue
@@ -2212,7 +2229,8 @@ func repoCommitBuckets(repo repository, now time.Time, period int) []int {
 	if period == 7 {
 		values := make([]int, 7)
 		start := now.Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
-		for _, item := range repo.Commits {
+		for _, activity := range repoCommitActivity(repo, now) {
+			item := activity.Commit
 			t, err := time.Parse(time.RFC3339, item.Date)
 			if err != nil || t.Before(start) || t.After(now) {
 				continue
@@ -2226,7 +2244,8 @@ func repoCommitBuckets(repo repository, now time.Time, period int) []int {
 	}
 	values := make([]int, 24)
 	start := now.Add(-24 * time.Hour)
-	for _, item := range repo.Commits {
+	for _, activity := range repoCommitActivity(repo, now) {
+		item := activity.Commit
 		t, err := time.Parse(time.RFC3339, item.Date)
 		if err != nil || t.Before(start) || t.After(now) {
 			continue
@@ -2365,6 +2384,9 @@ func collectAgentWorkload(repos []repository, now time.Time) []agentWorkload {
 		for _, activity := range repoCommitActivity(repo, now) {
 			item := activity.Commit
 			t := parseTime(item.Date)
+			if t.IsZero() || now.Sub(t) > 7*24*time.Hour {
+				continue
+			}
 			key := item.SHA
 			if key == "" {
 				key = item.Date + ":" + item.Msg + ":" + commitActor(item)
@@ -2464,7 +2486,7 @@ func (m model) renderActivity(w, h int) []string {
 		}
 	}
 	now := time.Now()
-	cut := now.Add(-7 * 24 * time.Hour)
+	cut := now.Add(-time.Duration(activityHistoryDays) * 24 * time.Hour)
 	for _, repo := range m.repos {
 		if scope != "" && repo.FullName != scope {
 			continue
@@ -2480,7 +2502,7 @@ func (m model) renderActivity(w, h int) []string {
 	content := []string{mutedStyle.Render(fit("RECENT COMMITS · REPO / ACTOR", w))}
 	room := max(0, (h-1)/2)
 	if len(items) == 0 {
-		message := "No recent commits in the last 7 days"
+		message := "No recent commits in the last 30 days"
 		if m.busyCommitHistory {
 			message = "Syncing recent commit activity…"
 		}
@@ -2684,10 +2706,12 @@ func (m model) helpView() string {
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"ATTRIBUTION + DATA",
-		"  Commit authors use GitHub login where available.",
+		"  Commit authors use GitHub login where available; human and automation accounts are counted uniformly.",
 		"  Actions actors identify who triggered a workflow; this is not an agent heartbeat.",
-		"  Commit activity combines default-branch history with recent feature-branch history for recently pushed repositories.",
-		"  Repositories refresh every 3 minutes; Actions and commits every 60 seconds.",
+		"  Activity counts show unique commits over 24h / 7d / 30d, including active feature branches.",
+		"  People counts are distinct commit authors over 30 days; BR counts branches active in the last 7 days.",
+		"  A ~ prefix means history is incomplete or a branch reached the 20-commit sample limit.",
+		"  Repository metadata and commit history refresh every 3 minutes; Actions refresh every 60 seconds.",
 		"  Cached data remains visible during API outages.",
 	}
 	return box("HELP", lines, m.width-4, m.height-2, true)
