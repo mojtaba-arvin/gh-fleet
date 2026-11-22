@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -93,5 +95,41 @@ func TestScaledBarUnitsPreserveSmallNonZeroActivity(t *testing.T) {
 	got := scaledBarUnits([]int{1, 0, 100}, 5, 100)
 	if got[0] != 1 || got[1] != 0 || got[2] != 40 {
 		t.Fatalf("scaledBarUnits() = %v, want [1 0 40]", got)
+	}
+}
+
+func TestDefaultDashboardStartsOnActivityAndShowsRepositoryHistograms(t *testing.T) {
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	client := &apiClient{cache: make(map[string][]run), etags: make(map[string]string)}
+	m := newModel(client, cachePath)
+	if m.focus != 1 {
+		t.Fatalf("default focus = %d, want Activity section (1)", m.focus)
+	}
+
+	now := time.Now().UTC()
+	m.repos = []repository{
+		{
+			FullName:       "acme/alpha",
+			Name:           "alpha",
+			CommitsFetched: now,
+			Commits: []commitInfo{
+				{SHA: "a1", Date: now.Add(-20 * time.Minute).Format(time.RFC3339)},
+				{SHA: "a2", Date: now.Add(-40 * time.Minute).Format(time.RFC3339)},
+			},
+		},
+		{
+			FullName:       "acme/beta",
+			Name:           "beta",
+			CommitsFetched: now,
+			Commits: []commitInfo{
+				{SHA: "b1", Date: now.Add(-90 * time.Minute).Format(time.RFC3339)},
+			},
+		},
+	}
+	rendered := strings.Join(m.renderCommitChart(90, 10), "\n")
+	for _, want := range []string{"alpha", "2 commits", "beta", "1 commits"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("default dashboard chart is missing %q:\n%s", want, rendered)
+		}
 	}
 }

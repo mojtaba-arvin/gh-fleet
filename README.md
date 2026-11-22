@@ -8,7 +8,7 @@ The dashboard is designed for large terminal windows. It shows an account overvi
 
 - Account-wide repository table with branch, open pull request, open issue, and latest Actions status counts.
 - Aggregate cards for repositories, branches, open pull requests, open issues, running workflows, recent failures, and recently updated branch heads.
-- A dedicated activity analytics screen with a separate, labeled histogram card for every repository. Each card shows total commits, peak bucket, active buckets, default branch, and a time axis; 24-hour and 7-day charts use hourly and daily buckets respectively.
+- Repository commit histograms are visible immediately on the default dashboard, with a separate chart per repository, commit totals, peak hourly activity, a compact trend line, and a shared scale. The `c` screen expands this into full per-repository analytics cards; 24-hour and 7-day charts use hourly and daily buckets respectively.
 - Per-repository count of currently running GitHub Actions jobs (only `in_progress`; queued runs are not counted).
 - Repository detail includes recent commits and authors for its branches; Actions runs are prioritized by activity and failure state, with logs for the selected run.
 - Repository names are shown without repeating the account owner; the owner is included when repository names collide.
@@ -25,7 +25,7 @@ The current release targets `github.com`. The authenticated GitHub CLI account n
 
 ## Install
 
-Install the latest tagged source with Go:
+Install the latest published module revision with Go:
 
 ```sh
 go install github.com/mojtaba-arvin/gh-fleet@latest
@@ -36,6 +36,14 @@ Then run:
 ```sh
 gh-fleet
 ```
+
+To update an existing Go installation, run the same install command again:
+
+```sh
+go install github.com/mojtaba-arvin/gh-fleet@latest
+```
+
+Verify the executable selected by your shell with `command -v gh-fleet`, then check its embedded module version with `gh-fleet -version`. If `command -v` points to a different Go bin directory than the one updated by `go install`, update your `PATH` or invoke the binary from `$(go env GOBIN)` (or `$(go env GOPATH)/bin`).
 
 Or build from a checkout:
 
@@ -55,7 +63,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 | `Tab` / `Shift+Tab` | Focus repositories, activity, or Actions |
 | `↑` / `↓`, `j` / `k` | Move through the focused section |
 | `Enter` on a repository | Scope the dashboard to that repository |
-| `c` | Open separate commit charts for each repository |
+| `c` | Open the expanded per-repository commit analytics view |
 | `1` / `2` in charts | Switch between 24-hour and 7-day views |
 | `↑` / `↓` in charts | Scroll through repository charts |
 | `Esc` | Return to the account overview |
@@ -70,7 +78,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 
 ## Refresh and network behavior
 
-- The account snapshot and default-branch commit history refresh every 3 minutes.
+- The account snapshot and default-branch commit history refresh every 3 minutes. Commit charts are part of the default dashboard and begin syncing automatically at startup; cached history is shown immediately when available.
 - Commit history queries up to the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The `c` analytics screen renders a separate histogram for every repository; `1` shows 24 hourly buckets and `2` shows 7 daily buckets. All repository charts in the selected period share one Y-axis scale so bar heights can be compared honestly. Repositories are ordered by activity in the selected period.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
