@@ -956,7 +956,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "a" {
 			m.agentWorkloadMode = true
 			m.workloadScroll = 0
-
+			var cmds []tea.Cmd
+			if !m.busyCommitHistory && len(m.repos) > 0 && (m.lastCommitHistory.IsZero() || time.Since(m.lastCommitHistory) >= activityRefreshInterval) {
+				m.busyCommitHistory = true
+				cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
+			}
+			if !m.busyBranchHistory && len(m.repos) > 0 && (m.lastBranchHistory.IsZero() || time.Since(m.lastBranchHistory) >= activityRefreshInterval) {
+				m.busyBranchHistory = true
+				cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
+			}
+			if len(cmds) > 0 {
+				return m, tea.Batch(cmds...)
+			}
 			return m, nil
 		}
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
@@ -999,10 +1010,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								delete(m.queuedRuns, r.FullName)
 							}
 							m.queueRun(r.FullName, true)
-							if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= activityRefreshInterval) && !m.busyBranches[r.FullName] {
-								m.busyBranches[r.FullName] = true
-								cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
-							}
 						}
 						cmds = append(cmds, m.drainRunQueue()...)
 						if len(cmds) > 0 {
@@ -1031,10 +1038,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					delete(m.retryAt, "branches:"+r.FullName)
 					m.queueRun(r.FullName, true)
 					cmds := m.drainRunQueue()
-					if !m.busyBranches[r.FullName] {
-						m.busyBranches[r.FullName] = true
-						cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
-					}
 					if len(cmds) > 0 {
 						return m, tea.Batch(cmds...)
 					}
@@ -1158,17 +1161,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			cmds = append(cmds, m.drainRunQueue()...)
-			needsBranchHistory := false
-			for _, repo := range m.repos {
-				if repo.BranchHistoryDays < activityHistoryDays || repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= activityRefreshInterval {
-					needsBranchHistory = true
-					break
-				}
-			}
-			if needsBranchHistory && !m.busyBranchHistory && !time.Now().Before(m.retryAt["branch-history"]) {
-				m.busyBranchHistory = true
-				cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
-			}
 			if len(cmds) > 0 {
 				return m, tea.Batch(cmds...)
 			}
@@ -1268,7 +1260,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busyRepos = true
 			cmds = append(cmds, fetchReposCmd(m.api))
 		}
-		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
+		if m.agentWorkloadMode && !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
 			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= activityRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
@@ -1280,7 +1272,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		if !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
+		if m.agentWorkloadMode && !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
 			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= activityRefreshInterval) &&
 			!now.Before(m.retryAt["branch-history"]) {
 			m.busyBranchHistory = true
@@ -1297,11 +1289,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if (r.Fetched.IsZero() || now.Sub(r.Fetched) >= interval) && !now.Before(m.retryAt["runs:"+r.FullName]) {
 				m.queueRun(r.FullName, selected)
-			}
-			branchKey := "branches:" + r.FullName
-			if selected && !m.busyBranches[r.FullName] && (r.BranchesFetched.IsZero() || now.Sub(r.BranchesFetched) >= activityRefreshInterval) && !now.Before(m.retryAt[branchKey]) {
-				m.busyBranches[r.FullName] = true
-				cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
 			}
 		}
 		cmds = append(cmds, m.drainRunQueue()...)
