@@ -12,7 +12,7 @@ The default screen is a human-oriented command center. It puts work that may nee
 - **In flight / waiting:** running or queued workflows and PRs with an explicitly requested reviewer.
 - **Repository portfolio:** a plain-language state for each repository, open PR / issue counts, last push age, and latest CI result.
 - **CI queue:** active and recent failed workflows with direct log access.
-- **Repository detail:** the ten most recently updated open PRs with review state and requested reviewers, plus current CI context.
+- **Repository detail:** the ten most recently updated open PRs with review state and requested reviewers, plus current CI context. Repositories with more than ten open PRs also produce a visible sample-coverage warning; uninspected PR states are not treated as healthy.
 
 The first screen does not rank repositories or people by commit volume. The optional `a` diagnostic view groups GitHub-observed identities; it does not establish whether an identity is a person, bot, or coding agent.
 
