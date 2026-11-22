@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	tea "github.com/charmbracelet/bubbletea"
@@ -691,6 +692,8 @@ type model struct {
 	width, height       int
 	cursor, runCursor   int
 	attentionCursor     int
+	overviewPane        int // 0: attention, 1: in flight / waiting
+	inFlightCursor      int
 	prCursor            int
 	commitScroll        int
 	workloadScroll      int
@@ -938,7 +941,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filtering = false
 			case "backspace":
 				if m.filter != "" {
-					m.filter = m.filter[:len(m.filter)-1]
+					_, size := utf8.DecodeLastRuneInString(m.filter)
+					m.filter = m.filter[:len(m.filter)-size]
 				}
 			default:
 				if msg.Type == tea.KeyRunes {
@@ -1030,6 +1034,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "?":
 			m.showHelp = true
+		case "1":
+			m.focus = 0
+		case "2":
+			m.focus = 1
+		case "3":
+			m.focus = 2
+		case "left":
+			if m.focus == 0 {
+				m.overviewPane = 0
+			}
+		case "right":
+			if m.focus == 0 {
+				m.overviewPane = 1
+			}
 		case "tab":
 			m.focus = (m.focus + 1) % 3
 		case "shift+tab":
@@ -1043,7 +1061,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			switch m.focus {
 			case 0:
-				if item := m.selectedAttention(); item != nil && item.URL != "" {
+				if m.overviewPane == 1 {
+					if item := m.selectedInFlight(); item != nil && item.URL != "" {
+						_ = openURL(item.URL)
+					}
+				} else if item := m.selectedAttention(); item != nil && item.URL != "" {
 					_ = openURL(item.URL)
 				}
 			case 1:
@@ -1078,15 +1100,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case 2:
 				if r := m.selectedRun(); r != nil {
-					m.logMode = true
-					m.logRepo = r.repo
-					m.logRun = r.item.ID
-					m.logText = ""
-					m.logErr = ""
-					m.logBusy = true
-					m.logWatch = true
-					m.lastLog = time.Now()
-					return m, fetchLogCmd(m.api, m.logRepo, m.logRun)
+					return m, m.openRunLogs(r.repo, r.item.ID)
 				}
 			}
 		case "r":
@@ -1119,7 +1133,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "o":
 			switch m.focus {
 			case 0:
-				if item := m.selectedAttention(); item != nil && item.URL != "" {
+				if m.overviewPane == 1 {
+					if item := m.selectedInFlight(); item != nil && item.URL != "" {
+						_ = openURL(item.URL)
+					}
+				} else if item := m.selectedAttention(); item != nil && item.URL != "" {
 					_ = openURL(item.URL)
 				}
 			case 1:
@@ -1137,29 +1155,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "l":
 			if m.focus == 0 {
-				if item := m.selectedAttention(); item != nil && item.RunID != 0 {
-					m.logMode = true
-					m.logRepo = item.Repo
-					m.logRun = item.RunID
-					m.logText = ""
-					m.logErr = ""
-					m.logBusy = true
-					m.logWatch = true
-					m.lastLog = time.Now()
-					return m, fetchLogCmd(m.api, m.logRepo, m.logRun)
+				if m.overviewPane == 1 {
+					if item := m.selectedInFlight(); item != nil && item.RunID != 0 {
+						return m, m.openRunLogs(item.Repo, item.RunID)
+					}
+				} else if item := m.selectedAttention(); item != nil && item.RunID != 0 {
+					return m, m.openRunLogs(item.Repo, item.RunID)
 				}
 			}
 			if m.focus == 2 {
 				if r := m.selectedRun(); r != nil {
-					m.logMode = true
-					m.logRepo = r.repo
-					m.logRun = r.item.ID
-					m.logText = ""
-					m.logErr = ""
-					m.logBusy = true
-					m.logWatch = true
-					m.lastLog = time.Now()
-					return m, fetchLogCmd(m.api, m.logRepo, m.logRun)
+					return m, m.openRunLogs(r.repo, r.item.ID)
 				}
 			}
 		case "up", "k":
@@ -1169,7 +1175,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "home", "g":
 			switch m.focus {
 			case 0:
-				m.attentionCursor = 0
+				if m.overviewPane == 1 {
+					m.inFlightCursor = 0
+				} else {
+					m.attentionCursor = 0
+				}
 			case 1:
 				if m.detail {
 					m.prCursor = 0
@@ -1182,7 +1192,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G":
 			switch m.focus {
 			case 0:
-				m.attentionCursor = max(0, len(m.attentionItems())-1)
+				if m.overviewPane == 1 {
+					m.inFlightCursor = max(0, len(m.inFlightItems())-1)
+				} else {
+					m.attentionCursor = max(0, len(m.attentionItems())-1)
+				}
 			case 1:
 				if m.detail {
 					if r := m.selectedRepo(); r != nil {
@@ -1412,7 +1426,11 @@ func (m *model) logScroll(n int) {
 func (m *model) move(n int) {
 	switch m.focus {
 	case 0:
-		m.attentionCursor = max(0, min(len(m.attentionItems())-1, m.attentionCursor+n))
+		if m.overviewPane == 1 {
+			m.inFlightCursor = max(0, min(len(m.inFlightItems())-1, m.inFlightCursor+n))
+		} else {
+			m.attentionCursor = max(0, min(len(m.attentionItems())-1, m.attentionCursor+n))
+		}
 	case 1:
 		if m.detail {
 			if r := m.selectedRepo(); r != nil {
@@ -1424,6 +1442,36 @@ func (m *model) move(n int) {
 	case 2:
 		m.runCursor = max(0, min(len(m.visibleRuns())-1, m.runCursor+n))
 	}
+}
+
+func (m model) inFlightItems() []inFlightItem {
+	var agentTasks map[string]agentTask
+	if m.agentEventsPath != "" {
+		agentTasks = m.agentTasks
+	}
+	return collectInFlightItems(m.repos, time.Now(), agentTasks)
+}
+
+func (m model) selectedInFlight() *inFlightItem {
+	items := m.inFlightItems()
+	if len(items) == 0 {
+		return nil
+	}
+	item := items[max(0, min(m.inFlightCursor, len(items)-1))]
+	return &item
+}
+
+func (m *model) openRunLogs(repo string, id int64) tea.Cmd {
+	m.logMode = true
+	m.logRepo = repo
+	m.logRun = id
+	m.logText = ""
+	m.logErr = ""
+	m.logBusy = true
+	m.logWatch = true
+	m.logOffset = 0
+	m.lastLog = time.Now()
+	return fetchLogCmd(m.api, repo, id)
 }
 
 func (m *model) queueRun(name string, priority bool) {
@@ -1787,6 +1835,9 @@ func (m model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "Starting GitHub Fleet…"
 	}
+	if m.width < 40 {
+		return fit("Widen terminal to at least 40 columns.", m.width)
+	}
 	if m.showHelp {
 		return m.helpView()
 	}
@@ -1796,8 +1847,8 @@ func (m model) View() string {
 	if m.agentWorkloadMode {
 		return m.agentWorkloadView()
 	}
-	if m.width < 40 {
-		return "Enlarge terminal to at least 40 columns for the operations dashboard."
+	if m.height < 10 {
+		return fit("Increase terminal height to at least 10 rows.", m.width)
 	}
 	switch m.focus {
 	case 1:
@@ -1813,6 +1864,7 @@ func (m model) renderTabs(w int) string {
 	labels := []string{"Overview", "Repositories", "CI queue"}
 	var parts []string
 	for i, label := range labels {
+		label = strconv.Itoa(i+1) + " " + label
 		if i == m.focus {
 			parts = append(parts, selectStyle.Render(" "+label+" "))
 		} else {
@@ -2016,7 +2068,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 			rows = append(rows, fit(line, w))
 			if len(rows) < h {
 				detail := item.Subject + " → " + item.Next
-				if i == m.attentionCursor {
+				if i == m.attentionCursor && m.overviewPane == 0 {
 					rows = append(rows, selectStyle.Width(w).Render(fit(detail, w)))
 				} else {
 					rows = append(rows, fit(detail, w))
@@ -2061,7 +2113,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 			mutedStyle.Render(fit(item.Subject, subjectWidth)) + " " +
 			mutedStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
 			mutedStyle.Render(fit(item.Next, nextWidth))
-		if i == m.attentionCursor {
+		if i == m.attentionCursor && m.overviewPane == 0 {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
 		rows = append(rows, fit(line, w))
@@ -2132,35 +2184,45 @@ func collectInFlightItems(repos []repository, now time.Time, agentTaskSets ...ma
 }
 
 func (m model) renderInFlightRows(w, h int) []string {
-	var agentTasks map[string]agentTask
-	if m.agentEventsPath != "" {
-		agentTasks = m.agentTasks
+	items := m.inFlightItems()
+	if w <= 0 || h <= 0 {
+		return nil
 	}
-	items := collectInFlightItems(m.repos, time.Now(), agentTasks)
+	selected := max(0, min(m.inFlightCursor, len(items)-1))
+	if len(items) == 0 {
+		message := "No active workflows or explicitly requested reviews."
+		rows := []string{mutedStyle.Render(fit(message, w))}
+		for len(rows) < h {
+			rows = append(rows, "")
+		}
+		return rows[:h]
+	}
+
 	if w < 88 {
+		start := max(0, min(selected-h/2, max(0, len(items)-h)))
 		rows := make([]string, 0, h)
-		for i := 0; i < min(len(items), h); i++ {
+		for i := start; i < min(len(items), start+h); i++ {
 			item := items[i]
-			label := item.Kind + " " + shortName(item.Repo) + " " + item.Subject + " " + ageLabel(item.Age)
+			label := item.Kind + "  " + shortName(item.Repo) + "  " + item.Subject + "  " + ageLabel(item.Age)
 			if item.Detail != "" {
 				label += " · " + item.Detail
 			}
-			rows = append(rows, fit(label, w))
-		}
-		if len(items) == 0 {
-			rows = append(rows, mutedStyle.Render(fit("No active CI or requested reviews.", w)))
+			line := fit(label, w)
+			if i == selected && m.overviewPane == 1 {
+				line = selectStyle.Width(w).Render(line)
+			}
+			rows = append(rows, line)
 		}
 		for len(rows) < h {
 			rows = append(rows, "")
 		}
-		return rows[:min(len(rows), h)]
+		return rows[:h]
 	}
+
 	rows := []string{mutedStyle.Render(fit("STATE       REPOSITORY / WORKFLOW OR PR", w))}
 	room := max(0, h-1)
-	if len(items) == 0 {
-		rows = append(rows, mutedStyle.Render("No active CI or explicitly requested reviews."))
-	}
-	for i := 0; i < min(len(items), room); i++ {
+	start := max(0, min(selected-room/2, max(0, len(items)-room)))
+	for i := start; i < min(len(items), start+room); i++ {
 		item := items[i]
 		style := activeStyle
 		if item.Kind == "REVIEW" || strings.Contains(item.Kind, "WAITING") || strings.Contains(item.Kind, "STALE") {
@@ -2176,12 +2238,16 @@ func (m model) renderInFlightRows(w, h int) []string {
 		if item.Detail != "" {
 			line += mutedStyle.Render(" · " + item.Detail)
 		}
-		rows = append(rows, fit(line, w))
+		line = fit(line, w)
+		if i == selected && m.overviewPane == 1 {
+			line = selectStyle.Width(w).Render(line)
+		}
+		rows = append(rows, line)
 	}
 	for len(rows) < h {
 		rows = append(rows, "")
 	}
-	return rows[:min(len(rows), h)]
+	return rows[:h]
 }
 
 func (m model) overviewView() string {
@@ -2195,8 +2261,8 @@ func (m model) overviewView() string {
 		gap := 1
 		leftW := int(float64(w) * 0.61)
 		rightW := w - leftW - gap
-		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, true)
-		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, false)
+		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
+		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
 		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", body, footer)
 	}
@@ -2207,8 +2273,8 @@ func (m model) overviewView() string {
 	}
 	attentionH := max(3, (bodyH-1)*2/3)
 	waitH := bodyH - attentionH - 1
-	attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, true)
-	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, false)
+	attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
+	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, m.overviewPane == 1)
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", attention, waiting, footer)
 }
 
@@ -2425,10 +2491,13 @@ func (m model) renderHeader(w int) string {
 	if m.lastErr != "" {
 		status = badStyle.Render("● " + state)
 	}
-	agentNotice := m.agentRuntimeNotice()
 	agentStyle := mutedStyle
 	if m.agentLastErr != "" {
 		agentStyle = badStyle
+	}
+	agentLine := ""
+	if m.agentEventsPath != "" {
+		agentLine = "\n" + fit(agentStyle.Render(m.agentRuntimeNotice()), w)
 	}
 	if w < 70 {
 		smallState := "● SYNCING"
@@ -2441,14 +2510,13 @@ func (m model) renderHeader(w int) string {
 			smallState = "● STALE"
 			smallStyle = badStyle
 		}
-		return fit(titleStyle.Render("GH FLEET")+"  "+smallStyle.Render(smallState), w) + "\n" +
-			fit(agentStyle.Render(agentNotice), w)
+		return fit(titleStyle.Render("GH FLEET")+"  "+smallStyle.Render(smallState), w) + agentLine
 	}
 	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
 	login := mutedStyle.Render("  " + m.login)
 	left := fit(brand+login, max(1, w-width(status)-1))
 	gap := max(1, w-width(left)-width(status))
-	return left + strings.Repeat(" ", gap) + status + "\n" + fit(agentStyle.Render(agentNotice), w)
+	return left + strings.Repeat(" ", gap) + status + agentLine
 }
 
 func metric(label, value, detail string, color lipgloss.Color, w int) string {
@@ -3435,10 +3503,16 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ actions · Tab views · Enter/o open · a identities · r refresh · ? help · q quit"
+	left := "↑↓ select · ←/→ queues · Enter open · l logs · 1–3 views · ? help · q quit"
 	switch m.focus {
+	case 0:
+		if m.overviewPane == 0 {
+			left = "↑↓ attention · → in flight · Enter open · l logs · 1–3 views · ? help"
+		} else {
+			left = "↑↓ in flight · ← attention · Enter open · l logs · o browser · 1–3 views · ? help"
+		}
 	case 1:
-		left = "↑↓ repos · Enter detail · / filter · o browser · r refresh · ? help"
+		left = "↑↓ repos · Enter detail · / filter · o browser · r refresh · 1–3 views · ? help"
 		if m.detail {
 			left = "↑↓ PRs · Enter/o open · Esc portfolio · r refresh · ? help"
 		}
@@ -3448,7 +3522,11 @@ func (m model) renderFooter(w int) string {
 	if w < 70 {
 		switch m.focus {
 		case 0:
-			left = "↑↓ select · Tab views · Enter open · ? help"
+			if m.overviewPane == 0 {
+				left = "↑↓ attention · → waiting · Enter open · ? help"
+			} else {
+				left = "↑↓ waiting · ← attention · Enter open · l logs · ? help"
+			}
 		case 1:
 			left = "↑↓ select · Enter detail/open · Esc back"
 			if m.detail {
@@ -3514,11 +3592,14 @@ func (m model) helpView() string {
 	lines := []string{
 		"A human-facing console for delivery state across GitHub repositories.", "",
 		"NAVIGATION",
-		"  Tab / Shift+Tab     Overview, repositories, CI queue",
-		"  ↑ / ↓ or j / k     Select attention item, repository, PR, or workflow",
-		"  Enter               Open attention/PR destination, repository detail, or CI logs",
+		"  Tab / Shift+Tab     Next / previous view",
+		"  1 / 2 / 3           Jump directly to Overview, Repositories, CI queue",
+		"  ↑ / ↓ or j / k     Select an item in the focused list",
+		"  ← / →              Switch between Overview attention and in-flight queues",
+		"  Enter               Open selected item, enter repository detail, or open CI logs",
+		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
-		"  a                   Optional GitHub identity diagnostic (not agent status)",
+		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
 		"CI OPERATIONS",

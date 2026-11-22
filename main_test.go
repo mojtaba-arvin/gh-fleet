@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
@@ -56,6 +58,96 @@ func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("narrow operator dashboard does not contain %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestOverviewPanelsCanBeFocusedAndNavigated(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width: 120, height: 30,
+		repos: []repository{{
+			FullName: "acme/ops",
+			Runs: []run{{
+				ID: 41, Name: "unit-tests", Status: "in_progress",
+				StartedAt: now.Add(-time.Minute).Format(time.RFC3339),
+				URL:       "https://github.com/acme/ops/actions/runs/41",
+			}},
+			PullRequests: []pullRequestSummary{{
+				Number: 22, Title: "Tighten permissions", ReviewDecision: "REVIEW_REQUIRED",
+				RequestedReviewers: []string{"reviewer-a"},
+				UpdatedAt:          now.Add(-time.Hour).Format(time.RFC3339),
+				URL:                "https://github.com/acme/ops/pull/22",
+			}},
+		}},
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	if m.overviewPane != 1 {
+		t.Fatalf("right arrow selected overview pane %d, want in-flight pane 1", m.overviewPane)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	if m.inFlightCursor != 1 {
+		t.Fatalf("down arrow moved in-flight cursor to %d, want 1", m.inFlightCursor)
+	}
+	selected := m.selectedInFlight()
+	if selected == nil || selected.Kind != "REVIEW" {
+		t.Fatalf("selected in-flight item = %+v, want requested-review item", selected)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = updated.(model)
+	if m.overviewPane != 0 {
+		t.Fatalf("left arrow selected overview pane %d, want attention pane 0", m.overviewPane)
+	}
+}
+
+func TestInFlightWorkflowLogsHaveAnExplicitShortcut(t *testing.T) {
+	m := model{
+		width: 120, height: 30, focus: 0, overviewPane: 1,
+		repos: []repository{{FullName: "acme/ops", Runs: []run{{
+			ID: 41, Name: "unit-tests", Status: "in_progress",
+			URL: "https://github.com/acme/ops/actions/runs/41",
+		}}}},
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	got := updated.(model)
+	if !got.logMode || got.logRepo != "acme/ops" || got.logRun != 41 {
+		t.Fatalf("l did not open logs for the selected workflow: %+v", got)
+	}
+	if cmd == nil {
+		t.Fatal("opening workflow logs did not request log data")
+	}
+}
+
+func TestNumberKeysJumpToPrimaryViews(t *testing.T) {
+	m := model{width: 120, height: 30}
+	for _, tc := range []struct {
+		key  rune
+		view int
+	}{{'1', 0}, {'2', 1}, {'3', 2}} {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tc.key}})
+		m = updated.(model)
+		if m.focus != tc.view {
+			t.Errorf("key %q selected view %d, want %d", tc.key, m.focus, tc.view)
+		}
+	}
+}
+
+func TestFilterBackspaceRemovesOneUnicodeRune(t *testing.T) {
+	m := model{width: 80, height: 24, focus: 1, filtering: true, filter: "café"}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	got := updated.(model).filter
+	if got != "caf" {
+		t.Fatalf("filter after backspace = %q, want %q", got, "caf")
+	}
+}
+
+func TestConfiguredAgentTelemetryStillShowsItsActualConnectionState(t *testing.T) {
+	m := model{width: 80, height: 24, agentEventsPath: "/tmp/agent-events.jsonl", busyAgentPoll: true}
+	header := m.renderHeader(80)
+	if !strings.Contains(header, "CONNECTING") {
+		t.Fatalf("configured agent source status was hidden:\n%s", header)
 	}
 }
 
@@ -376,10 +468,13 @@ func TestOverviewDefaultsToHumanActionQueues(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW NEEDED", "NOT CONNECTED"} {
+	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW NEEDED"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, "Agent runtime: NOT CONNECTED") {
+		t.Errorf("GitHub-only dashboard should not spend a permanent line on an unconfigured optional source:\n%s", view)
 	}
 	for _, unwanted := range []string{"COMMITS · 30D", "CONTRIBUTORS", "ACTOR / AGENT"} {
 		if strings.Contains(view, unwanted) {
@@ -484,10 +579,10 @@ func TestRepositoryDetailShowsSelectablePullRequests(t *testing.T) {
 	}
 }
 
-func TestCompactOverviewKeepsAgentSourceNoticeVisible(t *testing.T) {
+func TestCompactOverviewKeepsGitHubStateWithoutExternalSourceNag(t *testing.T) {
 	m := model{width: 40, height: 14, focus: 0}
 	view := m.View()
-	for _, want := range []string{"NOT CONNECTED", "ATT 0", "NEEDS ATTENTION"} {
+	for _, want := range []string{"ATT 0", "NEEDS ATTENTION"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("40-column overview missing %q:\n%s", want, view)
 		}
