@@ -1995,6 +1995,15 @@ func calendarHeatmapRows(repo repository, now time.Time, widthLimit int) []strin
 	return rows
 }
 
+func calendarLegend() string {
+	return mutedStyle.Render("LESS ·") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#315b46")).Render(" ░") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#3d8058")).Render(" ▒") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#55a96b")).Render(" ▓") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#8bd49c")).Render(" █") +
+		mutedStyle.Render(" MORE")
+}
+
 func maxInt(values []int) int {
 	maximum := 0
 	for _, value := range values {
@@ -2058,7 +2067,7 @@ func (m model) commitChartsView() string {
 	chartH := 4
 	cardH := chartH + 6
 	if period == 365 {
-		cardH = 9
+		cardH = 10
 	}
 	visible := max(1, (h-7)/(cardH+3))
 	maxStart := max(0, len(repos)-visible)
@@ -2102,6 +2111,7 @@ func (m model) commitChartsView() string {
 			}
 			content = append(content, meta)
 			content = append(content, calendarHeatmapRows(*repo, now, 53)...)
+			content = append(content, calendarLegend())
 		} else {
 			status := fmt.Sprintf("%d COMMITS", total)
 			if repo.CommitsFetched.IsZero() {
@@ -2120,15 +2130,6 @@ func (m model) commitChartsView() string {
 	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
 	footer := mutedStyle.Render(fmt.Sprintf("ACTIVE REPOSITORIES  %d–%d OF %d", startIndex+1, endIndex, len(repos))) +
 		"   ↑↓ / j k scroll   PgUp/PgDn page   1 24h   2 7d   3 1y   r refresh   Esc back"
-	if period == 365 {
-		legend := mutedStyle.Render("LESS ·") +
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#315b46")).Render(" ░") +
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#3d8058")).Render(" ▒") +
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#55a96b")).Render(" ▓") +
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#8bd49c")).Render(" █") +
-			mutedStyle.Render(" MORE")
-		footer += "   " + legend
-	}
 	if m.busyCommitHistory {
 		footer += activeStyle.Render("   · syncing")
 	} else if !m.lastCommitHistory.IsZero() {
