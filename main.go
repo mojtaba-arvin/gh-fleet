@@ -1055,7 +1055,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
-			if needsBranchHistory && !m.busyBranchHistory {
+			if needsBranchHistory && !m.busyBranchHistory && !time.Now().Before(m.retryAt["branch-history"]) {
 				m.busyBranchHistory = true
 				cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
 			}
@@ -1099,6 +1099,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		now := time.Now()
 		for name, message := range msg.errors {
 			m.lastErr = name + ": " + message
+		}
+		if len(msg.errors) > 0 {
+			m.backoff("branch-history")
+		} else {
+			m.clearBackoff("branch-history")
 		}
 		for name, items := range msg.branches {
 			if r := m.repoByName(name); r != nil {
@@ -1166,7 +1171,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
-			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) {
+			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) &&
+			!now.Before(m.retryAt["branch-history"]) {
 			m.busyBranchHistory = true
 			cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
 		}
