@@ -1205,24 +1205,14 @@ type runRef struct {
 
 func (m model) visibleRuns() []runRef {
 	var out []runRef
-	for _, r := range m.repos {
-		if m.detail {
-			selected := m.selectedRepo()
-			if selected == nil || selected.FullName != r.FullName {
-				continue
-			}
-		}
-		for _, v := range r.Runs {
-			out = append(out, runRef{r.FullName, m.repoLabel(&r), v})
+	for _,r:=range m.repos {
+		if m.detail { selected:=m.selectedRepo();if selected==nil||selected.FullName!=r.FullName{continue} }
+		for _,v:=range r.Runs {
+			if !isActive(v) && !(v.Status=="completed"&&v.Conclusion=="failure"&&time.Since(parseTime(v.UpdatedAt))<=24*time.Hour) { continue }
+			out=append(out,runRef{r.FullName,m.repoLabel(&r),v})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		pi, pj := runPriority(out[i].item), runPriority(out[j].item)
-		if pi != pj {
-			return pi < pj
-		}
-		return out[i].item.UpdatedAt > out[j].item.UpdatedAt
-	})
+	sort.SliceStable(out,func(i,j int)bool{pi,pj:=runPriority(out[i].item),runPriority(out[j].item);if pi!=pj{return pi<pj};return out[i].item.UpdatedAt>out[j].item.UpdatedAt})
 	return out
 }
 func (m model) selectedRun() *runRef {
@@ -1400,7 +1390,7 @@ func (m model) View() string {
 	if m.width==0||m.height==0{return "Starting GitHub Fleet…"}
 	if m.showHelp{return m.helpView()};if m.logMode{return m.logView()};if m.commitCharts{return m.commitChartsView()}
 	if m.width<90{return m.narrowView()}
-	w,h:=m.width,m.height;headerH,metricsH,footerH,gap:=2,4,1,1
+	w,h:=m.width,m.height;headerH,metricsH,footerH,gap:=2,5,1,1
 	mainH:=max(7,h-headerH-metricsH-footerH-2*gap)
 	leftW:=int(float64(w)*0.57);if leftW<58{leftW=58};if leftW>w-45{leftW=w-45};rightW:=w-leftW-gap
 	ciH:=max(5,mainH*62/100);activityH:=mainH-ciH-1;if activityH<4{activityH=4;ciH=mainH-activityH-1}
@@ -2007,22 +1997,30 @@ func (m model) renderActivity(w,h int) []string {
 	cut:=time.Now().Add(-7*24*time.Hour)
 	for _,repo:=range m.repos{if scope!=""&&repo.FullName!=scope{continue};for _,item:=range repo.Commits{t:=parseTime(item.Date);if t.IsZero()||t.Before(cut){continue};items=append(items,commitActivity{Repo:repo.FullName,Branch:repo.Default,Commit:item})}}
 	sort.Slice(items,func(i,j int)bool{return items[i].Commit.Date>items[j].Commit.Date})
-	content:=[]string{mutedStyle.Render(fit("AGE   REPOSITORY       ACTOR             COMMIT",w))};room:=max(0,h-1)
+	content:=[]string{mutedStyle.Render(fit("RECENT COMMITS · REPO / ACTOR",w))};room:=max(0,(h-1)/2)
 	if len(items)==0{message:="No default-branch commits in the last 7 days";if m.busyCommitHistory{message="Syncing recent commit activity…"};content=append(content,mutedStyle.Render(message))}
 	start:=max(0,min(m.commitScroll,max(0,len(items)-room)))
-	for _,item:=range items[start:min(len(items),start+room)]{actor:=commitActor(item.Commit);if actor==""{actor="unknown"};line:=fmt.Sprintf("%-4s %-16s %-17s %s",fit(shortAge(item.Commit.Date),4),fit(m.repoLabelByName(item.Repo),16),fit(actor,17),item.Commit.Msg);content=append(content,fit(mutedStyle.Render(line),w))}
-	for len(content)<h{content=append(content,"")};return content
+	for _,item:=range items[start:min(len(items),start+room)]{
+		actor:=commitActor(item.Commit);if actor==""{actor="unknown"}
+		first:=titleStyle.Render(fit(m.repoLabelByName(item.Repo),max(8,w/3)))+" "+branchStyle.Render(fit(actor,max(8,w/3)))+" "+mutedStyle.Render(shortAge(item.Commit.Date))
+		second:=mutedStyle.Render("  "+item.Commit.Msg)
+		content=append(content,fit(first,w),fit(second,w))
+	}
+	for len(content)<h{content=append(content,"")};return content[:min(len(content),h)]
 }
 func (m model) renderActions(w,h int) []string {
-	items:=m.visibleRuns();ops:=make([]runRef,0,len(items))
-	for _,item:=range items{if isActive(item.item)||(item.item.Status=="completed"&&item.item.Conclusion=="failure"&&time.Since(parseTime(item.item.UpdatedAt))<=24*time.Hour){ops=append(ops,item)}}
-	content:=[]string{mutedStyle.Render(fit("STATE     REPOSITORY      WORKFLOW / BRANCH                  ACTOR       AGE",w))};room:=max(0,h-1)
-	if len(ops)==0{message:="No running or queued CI pipelines";if len(m.repos)==0{message="Waiting for repository snapshot…"};content=append(content,mutedStyle.Render(message))}
-	start:=max(0,min(m.runCursor-room/2,max(0,len(ops)-room)))
-	for i:=start;i<min(len(ops),start+room);i++{ref:=ops[i];actor:=ref.item.Actor.Login;if actor==""{actor="unknown"};workflow:=ref.item.Name;if workflow==""{workflow=ref.item.Title};branch:=ref.item.Branch;if branch==""{branch="—"}
-		detail:=workflow+" · "+branch;line:=stateStyle(ref.item).Render(fit(stateText(ref.item),9))+" "+titleStyle.Render(fit(ref.short,15))+" "+fit(detail,max(12,w-54))+" "+branchStyle.Render(fit(actor,11))+" "+mutedStyle.Render(fit(shortAge(ref.item.UpdatedAt),4))
-		if i==m.runCursor{line=selectStyle.Width(w).Render(fit(line,w))};content=append(content,fit(line,w))}
-	for len(content)<h{content=append(content,"")};return content
+	items:=m.visibleRuns();content:=[]string{mutedStyle.Render(fit("STATE   REPOSITORY · WORKFLOW",w))}
+	rows:=max(0,(h-1)/2)
+	if len(items)==0{message:="No running or queued CI pipelines";if len(m.repos)==0{message="Waiting for repository snapshot…"};content=append(content,mutedStyle.Render(message))}
+	start:=max(0,min(m.runCursor-rows/2,max(0,len(items)-rows)))
+	for i:=start;i<min(len(items),start+rows);i++{
+		ref:=items[i];workflow:=ref.item.Name;if workflow==""{workflow=ref.item.Title};actor:=ref.item.Actor.Login;if actor==""{actor="unknown"};branch:=ref.item.Branch;if branch==""{branch="—"}
+		first:=stateStyle(ref.item).Render(fit(stateText(ref.item),8))+" "+titleStyle.Render(fit(ref.short,14))+" "+fit(workflow,max(8,w-25))
+		second:=mutedStyle.Render("  "+fit(branch,max(8,w-26))+" · "+fit(actor,10)+" · "+shortAge(ref.item.UpdatedAt))
+		if i==m.runCursor{first=selectStyle.Width(w).Render(fit(first,w))}
+		content=append(content,fit(first,w),fit(second,w))
+	}
+	for len(content)<h{content=append(content,"")};return content[:min(len(content),h)]
 }
 func stateText(r run) string {
 	switch runState(r) {
@@ -2133,16 +2131,7 @@ func (m model) narrowView() string {
 	panelTitle := []string{m.repoTitle(), m.activityTitle(), m.actionsTitle()}[m.focus]
 	switch m.focus {
 	case 0:
-		if !m.detail && !m.filtering && m.filter == "" && contentH >= 9 {
-			chartH := max(5, contentH/2)
-			repoH := contentH - chartH - 1
-			content = append(content, m.renderCommitChart(w-4, chartH)...)
-			content = append(content, mutedStyle.Render("REPOSITORIES"))
-			content = append(content, m.renderRepos(w-4, repoH)...)
-			panelTitle = "OVERVIEW · COMMIT ACTIVITY + REPOSITORIES"
-		} else {
-			content = m.renderRepos(w-2, contentH)
-		}
+		content = m.renderRepos(w-2, contentH)
 	case 1:
 		content = m.renderActivity(w-2, contentH)
 	case 2:
