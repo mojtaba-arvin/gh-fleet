@@ -1743,7 +1743,7 @@ func (m model) renderCommitChart(w, h int) []string {
 		chart := ntSparkline.New(max(16, min(28, w-2)), 2, ntSparkline.WithMaxValue(float64(max(1, maxInt(values)))), ntSparkline.WithNoAutoMaxValue(), ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
 		chart.PushAll(intsToFloats(values))
 		chart.DrawColumnsOnly()
-		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\\n"), "\\n")...)
+		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
 		if len(content) >= h { break }
 	}
 	for len(content) < h { content = append(content, "") }
