@@ -14,7 +14,7 @@ This phase is read-only. gh-fleet does not start, stop, approve, or send command
 - The runner/orchestrator owns appending events. gh-fleet opens the file read-only.
 - No HTTP listener, socket server, remote relay, database, daemon, or new dependency.
 - A missing/unreadable/untrusted file is an explicit source error; it is never interpreted as an empty/healthy agent fleet.
-- On Unix-like systems the spool must be a regular, non-symlink file with mode 0600 or stricter. The parent directory should be 0700. Windows ACLs remain the operator's responsibility.
+- On Unix-like systems the spool must be a regular, non-symlink file with mode 0600 or stricter, inside a real parent directory with mode 0700 or stricter. Windows ACLs remain the operator's responsibility.
 
 ### Bounded incremental reader
 
