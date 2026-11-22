@@ -113,15 +113,15 @@ The footer should show shortcuts relevant to the current view. No GitHub-only co
 - Preserve cached content during transient failures, expose stale/error state, use conditional requests where available, and back off after errors.
 - Fetch summary data first; logs and expanded detail remain on demand.
 
-## Agent lifecycle integration (future)
+## Agent lifecycle integration (optional local source)
 
-GitHub is not an agent runtime. To display actual agent state, gh-fleet needs an opt-in runner/orchestrator event source. Its target schema, local JSONL transport, lifecycle reducer, heartbeat freshness, correlation rules, and privacy constraints are defined in [Agent telemetry](AGENT_TELEMETRY.md).
+GitHub is not an agent runtime. gh-fleet now accepts an opt-in local JSONL event spool via `--agent-events PATH` or `GH_FLEET_AGENT_EVENTS`. The reader is read-only, incremental, bounded, and runs in a Bubble Tea command. The lifecycle reducer validates and deduplicates events, enforces sequence/terminal-state rules, and derives stale status from the declared heartbeat interval. Implementation limits and acceptance criteria are in [Agent runtime implementation](AGENT_RUNTIME_IMPLEMENTATION.md); the provider-neutral event schema and privacy boundaries are in [Agent telemetry](AGENT_TELEMETRY.md).
 
-When that source is connected, the UI should display explicit task state separately from GitHub state. Stable `agent_id` and `task_id` identify work; workflow runs and PRs are correlated only through explicit IDs or trusted adapter evidence. Repository and branch alone may suggest a possible match but must not silently confirm it.
+When that source is connected, the UI displays explicit starting/working/waiting task state in the in-flight queue and blocked/failed/stale tasks in Needs attention, separately from GitHub state. Stable `agent_id` and `task_id` identify work; workflow runs and PRs are correlated only through explicit IDs or trusted adapter evidence. Repository and branch alone may suggest a possible match but must not silently confirm it.
 
 Never collect prompts, model reasoning, full model outputs, raw tool inputs/results, secrets, environment variables, or credentials. A heartbeat means liveness, not progress. Stale is a freshness overlay, not a lifecycle state, and must not become failed automatically.
 
-The TUI must not become a public webhook server. Start with a local, owner-only JSONL spool. Add a loopback-authenticated receiver or remote relay only when a real multi-host requirement justifies its operational and security cost.
+The TUI is not a public webhook server. The implemented v1 reads a local, owner-only JSONL spool. A loopback-authenticated receiver or remote relay remains out of scope until a real multi-host requirement justifies the operational and security cost.
 
 ## Metrics policy
 
@@ -135,7 +135,7 @@ DORA measures require production deployment and outcome events. GitHub commit an
 
 - A first-time operator can find attention items and their next actions without opening an actor matrix or reading activity charts.
 - The overview contains no contribution calendar, commit leaderboard, or per-person productivity ranking.
-- Agent state is explicitly not connected until backed by runner telemetry.
+- Agent state is explicitly not connected until a readable runner telemetry source is configured.
 - PR and CI items link to the GitHub object that supports their displayed state.
 - Threshold cues state observable facts and do not diagnose stalled work.
 - 80-column layout stacks cleanly and keeps the same priorities; 40-column minimum remains usable.
