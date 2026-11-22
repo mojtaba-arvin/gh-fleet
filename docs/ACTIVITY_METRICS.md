@@ -24,7 +24,7 @@ A commit present on multiple branches is counted once per repository. GitHub com
 - Default-branch commit history is fetched through the REST commits endpoint for the trailing 30 days, paginated in pages of 100.
 - All branch refs are enumerated through GraphQL pagination.
 - For recently pushed repositories, GraphQL retrieves up to 20 recent commits per branch in the trailing 30 days.
-- If GitHub reports more than 20 matching commits on a branch, the row uses a ~ prefix to signal that activity and contributor counts are sampled lower bounds.
+- If GitHub reports more than 20 matching commits on a branch, or either the default/branch history has not yet completed successfully, the row uses a ~ prefix to signal incomplete coverage and lower-bound counts.
 - Repositories with no push in the last 30 days are treated as having no recent commit activity; branch history is skipped to avoid unnecessary requests.
 - Commits are deduplicated by SHA within each repository, so a commit reachable from both the default and feature branches is not double-counted.
 
