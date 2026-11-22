@@ -1726,8 +1726,12 @@ func (m model) renderMetrics(w int) string {
 		metric("COMMITS · 30D", countFmt(commits30d), fmt.Sprintf("%d/%d repos covered", coverage, repoCount), blue, cw),
 		metric("CONTRIBUTORS", countFmt(len(contributors)), "unique commit authors · 30d", cyan, cw),
 		metric("CI · RUN / WAIT", fmt.Sprintf("%d / %d", running, waiting), fmt.Sprintf("%d failures · 24h", failed), func() lipgloss.Color {
-			if failed > 0 { return red }
-			if running > 0 || waiting > 0 { return yellow }
+			if failed > 0 {
+				return red
+			}
+			if running > 0 || waiting > 0 {
+				return yellow
+			}
 			return green
 		}(), cw),
 	}
@@ -1842,7 +1846,9 @@ func (m model) renderRepos(w, h int) []string {
 		r := rows[i]
 		work := repoWorkload(*r, time.Now())
 		approx := ""
-		if work.ActivitySampled { approx = "~" }
+		if work.ActivitySampled {
+			approx = "~"
+		}
 		ci := repoCI(*r)
 		line := titleStyle.Render(fit(m.repoLabel(r), nameW)) + " " +
 			mutedStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
@@ -1908,11 +1914,11 @@ func repoCI(repo repository) string {
 
 type repoWork struct {
 	Commits24h, Commits7d, Commits30d int
-	ActiveBranches7d                 int
-	Daily                            []int
-	Actors                           []string
-	LastCommit                       time.Time
-	ActivitySampled                  bool
+	ActiveBranches7d                  int
+	Daily                             []int
+	Actors                            []string
+	LastCommit                        time.Time
+	ActivitySampled                   bool
 }
 
 func commitActor(item commitInfo) string {
