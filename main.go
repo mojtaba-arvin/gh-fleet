@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -289,7 +290,7 @@ func nullable(s string) any {
 
 func (c *apiClient) fetchRuns(ctx context.Context, fullName string) ([]run, error) {
 	key := "runs:" + fullName
-	url := apiRoot + "/repos/" + fullName + "/actions/runs?per_page=25"
+	url := apiRoot + "/repos/" + fullName + "/actions/runs?per_page=100"
 	resp, err := c.request(ctx, http.MethodGet, url, nil, key)
 	if err != nil {
 		return nil, err
@@ -389,15 +390,14 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 	return result, "", nil
 }
 
-func (c *apiClient) fetchCommitHistory(ctx context.Context, fullName string) ([]commitInfo, error) {
-	parts := strings.SplitN(fullName, "/", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid repository name %q", fullName)
+func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]commitInfo, error) {
+	if repo.Default == "" {
+		return nil, nil
 	}
-	query := "query($owner:String!,$name:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){defaultBranchRef{target{...on Commit{history(first:100,since:$since){nodes{oid committedDate messageHeadline author{name}}}}}}}}"
 	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	payload, _ := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"owner": parts[0], "name": parts[1], "since": since}})
-	resp, err := c.request(ctx, http.MethodPost, graphQLURL, bytes.NewReader(payload), "")
+	endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100",
+		apiRoot, repo.FullName, url.QueryEscape(repo.Default), url.QueryEscape(since))
+	resp, err := c.request(ctx, http.MethodGet, endpoint, nil, "")
 	if err != nil {
 		return nil, err
 	}
@@ -406,43 +406,29 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, fullName string) ([]
 		resp.Body.Close()
 		return nil, err
 	}
-	var data struct {
-		Data struct {
-			Repository *struct {
-				Default *struct {
-					Target *struct {
-						History struct {
-							Nodes []struct {
-								OID     string `json:"oid"`
-								Date    string `json:"committedDate"`
-								Message string `json:"messageHeadline"`
-								Author  struct {
-									Name string `json:"name"`
-								} `json:"author"`
-							} `json:"nodes"`
-						} `json:"history"`
-					} `json:"target"`
-				} `json:"defaultBranchRef"`
-			} `json:"repository"`
-		} `json:"data"`
-		Errors []struct {
+	var data []struct {
+		SHA string `json:"sha"`
+		Commit struct {
+			Committer struct {
+				Date string `json:"date"`
+			} `json:"committer"`
 			Message string `json:"message"`
-		} `json:"errors"`
+			Author struct {
+				Name string `json:"name"`
+			} `json:"author"`
+		} `json:"commit"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
 	resp.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("decode commit history for %s: %w", fullName, err)
+		return nil, fmt.Errorf("decode commit history for %s: %w", repo.FullName, err)
 	}
-	if len(data.Errors) > 0 {
-		return nil, errors.New(data.Errors[0].Message)
-	}
-	var commits []commitInfo
-	if data.Data.Repository == nil || data.Data.Repository.Default == nil || data.Data.Repository.Default.Target == nil {
-		return commits, nil
-	}
-	for _, item := range data.Data.Repository.Default.Target.History.Nodes {
-		commits = append(commits, commitInfo{SHA: item.OID, Date: item.Date, Msg: item.Message, Author: item.Author.Name})
+	commits := make([]commitInfo, 0, len(data))
+	for _, item := range data {
+		commits = append(commits, commitInfo{
+			SHA: item.SHA, Date: item.Commit.Committer.Date,
+			Msg: strings.SplitN(item.Commit.Message, "\n", 2)[0], Author: item.Commit.Author.Name,
+		})
 	}
 	return commits, nil
 }
@@ -474,7 +460,7 @@ func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
 					return
 				}
 				defer func() { <-sem }()
-				items, err := c.fetchCommitHistory(ctx, name)
+				items, err := c.fetchCommitHistory(ctx, repo)
 				mu.Lock()
 				defer mu.Unlock()
 				if err != nil {
