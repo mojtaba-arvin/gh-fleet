@@ -1665,7 +1665,7 @@ func sumInts(values []int) int {
 func scaledBarHeights(values []int, height, scaleMax int) []int {
 	out := make([]int, len(values))
 	maximum := max(1, scaleMax)
-	if maximum == 0 || height <= 0 {
+	if height <= 0 {
 		return out
 	}
 	for i, value := range values {
@@ -1689,7 +1689,9 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 	for level := chartHeight; level >= 1; level-- {
 		var line strings.Builder
 		for i, barHeight := range heights {
-			if i > 0 { line.WriteString(strings.Repeat(" ", gap)) }
+			if i > 0 {
+				line.WriteString(strings.Repeat(" ", gap))
+			}
 			if barHeight >= level {
 				line.WriteString(barStyle.Render(strings.Repeat("█", slot)))
 			} else if level == 1 {
@@ -1702,21 +1704,29 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 	}
 	baseline := mutedStyle.Render(strings.Repeat("─", min(chartWidth, slot*len(values)+gap*(len(values)-1))))
 	rows = append(rows, baseline)
+
 	var labels strings.Builder
 	if period == 7 {
-		start := now.UTC().Truncate(24*time.Hour).Add(-6*24*time.Hour)
+		start := now.UTC().Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
 		for i := range values {
-			if i > 0 { labels.WriteString(strings.Repeat(" ", gap)) }
-			label := start.Add(time.Duration(i)*24*time.Hour).Format("Mon 02")
+			if i > 0 {
+				labels.WriteString(strings.Repeat(" ", gap))
+			}
+			label := start.Add(time.Duration(i) * 24 * time.Hour).Format("Mon 02")
 			labels.WriteString(fit(label, slot))
 		}
 	} else {
 		axisWidth := slot*len(values) + gap*(len(values)-1)
 		axis := []rune(strings.Repeat(" ", axisWidth))
-		for _, tick := range []struct{ index int; label string }{{0, "00h"}, {6, "06h"}, {12, "12h"}, {18, "18h"}, {23, "24h"}} {
+		for _, tick := range []struct {
+			index int
+			label string
+		}{{0, "00h"}, {6, "06h"}, {12, "12h"}, {18, "18h"}, {23, "24h"}} {
 			position := tick.index * (slot + gap)
 			for offset, char := range tick.label {
-				if position+offset < len(axis) { axis[position+offset] = char }
+				if position+offset < len(axis) {
+					axis[position+offset] = char
+				}
 			}
 		}
 		labels.WriteString(string(axis))
@@ -1738,13 +1748,23 @@ func (m model) renderCommitChart(w, h int) []string {
 		name := fit(m.repoLabel(repo), max(8, w-25))
 		meta := fmt.Sprintf("%d commits · peak %d", sumInts(values), maxInt(values))
 		content = append(content, titleStyle.Render(name)+mutedStyle.Render("  "+meta))
-		chart := ntSparkline.New(max(16, min(28, w-2)), 2, ntSparkline.WithMaxValue(float64(max(1, maxInt(values)))), ntSparkline.WithNoAutoMaxValue(), ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
+		chart := ntSparkline.New(
+			max(16, min(28, w-2)),
+			2,
+			ntSparkline.WithMaxValue(float64(max(1, maxInt(values)))),
+			ntSparkline.WithNoAutoMaxValue(),
+			ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)),
+		)
 		chart.PushAll(intsToFloats(values))
 		chart.DrawColumnsOnly()
 		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
-		if len(content) >= h { break }
+		if len(content) >= h {
+			break
+		}
 	}
-	for len(content) < h { content = append(content, "") }
+	for len(content) < h {
+		content = append(content, "")
+	}
 	return content[:min(len(content), h)]
 }
 
@@ -1831,9 +1851,13 @@ func (m model) commitChartsView() string {
 	}
 	now := time.Now().UTC()
 	period := m.commitPeriod
-	if period != 7 { period = 24 }
+	if period != 7 {
+		period = 24
+	}
 	periodLabel := "24 HOURS  /  HOURLY"
-	if period == 7 { periodLabel = "7 DAYS  /  DAILY" }
+	if period == 7 {
+		periodLabel = "7 DAYS  /  DAILY"
+	}
 	head := m.renderHeader(w)
 	selector := titleStyle.Render("REPOSITORY ACTIVITY") + "   "
 	if period == 24 {
@@ -1842,6 +1866,7 @@ func (m model) commitChartsView() string {
 		selector += mutedStyle.Render("1  24H") + " " + selectStyle.Render("  2  7D  ")
 	}
 	selector += "   " + mutedStyle.Render(periodLabel)
+
 	repos := m.chartRepos()
 	if len(repos) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render("No repositories available in this scope."), "Esc to return")
@@ -1854,20 +1879,33 @@ func (m model) commitChartsView() string {
 	endIndex := min(len(repos), startIndex+visible)
 	chartW := max(48, w-10)
 	scaleMax := 1
-	for _, repo := range repos { scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period))) }
+	for _, repo := range repos {
+		scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period)))
+	}
+
 	var cards []string
 	for _, repo := range repos[startIndex:endIndex] {
 		values := repoCommitBuckets(*repo, now, period)
 		total := sumInts(values)
 		peak := maxInt(values)
 		active := 0
-		for _, value := range values { if value > 0 { active++ } }
+		for _, value := range values {
+			if value > 0 {
+				active++
+			}
+		}
 		branch := repo.Default
-		if branch == "" { branch = "default branch unavailable" }
+		if branch == "" {
+			branch = "default branch unavailable"
+		}
 		name := m.repoLabel(repo)
-		if name == "" { name = repo.FullName }
+		if name == "" {
+			name = repo.FullName
+		}
 		status := fmt.Sprintf("%d COMMITS", total)
-		if repo.CommitsFetched.IsZero() { status = "HISTORY LOADING" }
+		if repo.CommitsFetched.IsZero() {
+			status = "HISTORY LOADING"
+		}
 		meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(status) +
 			mutedStyle.Render(fmt.Sprintf("   PEAK %d / BUCKET   ·   ACTIVE %d/%d BUCKETS   ·   %s", peak, active, len(values), fit(branch, 20)))
 		chart := renderBarRows(values, chartW, chartH, period, scaleMax, now)
@@ -1875,7 +1913,9 @@ func (m model) commitChartsView() string {
 		content = append(content, chart...)
 		cards = append(cards, box("◈  "+name, content, w, cardH+2, false))
 	}
-	if len(cards) == 0 { cards = append(cards, mutedStyle.Render("No chart data available yet.")) }
+	if len(cards) == 0 {
+		cards = append(cards, mutedStyle.Render("No chart data available yet."))
+	}
 	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
 	footer := mutedStyle.Render(fmt.Sprintf("REPOSITORIES  %d–%d OF %d", startIndex+1, endIndex, len(repos))) +
 		"   ↑↓ / j k scroll   PgUp/PgDn page   1 24h   2 7d   r refresh   Esc back"
