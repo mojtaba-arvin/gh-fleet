@@ -924,8 +924,8 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		animationEnabled: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
-		animationActive: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
-		agentEventsPath: agentEventsPath, agentTasks: make(map[string]agentTask),
+		animationActive:  os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
+		agentEventsPath:  agentEventsPath, agentTasks: make(map[string]agentTask),
 		agentSeenEventIDs: make(map[string]struct{}), busyAgentPoll: agentEventsPath != "",
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
 		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt, lastBranchHistory: branchHistoryAt}
