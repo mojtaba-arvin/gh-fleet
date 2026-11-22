@@ -782,7 +782,7 @@ func fetchLogCmd(c *apiClient, repo string, id int64) tea.Cmd {
 	}
 }
 func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+	return tea.Tick(15*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func initialCachePath() string {
@@ -1441,34 +1441,31 @@ func (m model) selectedRun() *runRef {
 	return &r
 }
 func repoPriority(r *repository) int {
-	for _, x := range r.Runs {
-		if x.Status == "in_progress" {
-			return 0
+	now := time.Now()
+	if len(collectAttentionItems([]repository{*r}, now)) > 0 {
+		return 0
+	}
+	if runningRuns(*r) > 0 {
+		return 1
+	}
+	if queuedRuns(*r) > 0 {
+		return 2
+	}
+	for _, pr := range r.PullRequests {
+		if !pr.IsDraft && pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) > 0 {
+			return 3
 		}
 	}
-	for _, x := range r.Runs {
-		if queuedRun(x) {
-			return 1
-		}
+	if r.PRs > 0 {
+		return 4
 	}
-	for _, x := range r.Runs {
-		if x.Status == "completed" && x.Conclusion == "failure" && time.Since(parseTime(x.UpdatedAt)) < 24*time.Hour {
-			return 2
-		}
+	if r.Issues > 0 {
+		return 5
 	}
-	if repoWorkload(*r, time.Now()).Commits24h > 0 {
-		return 3
-	}
-	return 4
+	return 6
 }
 func latestRepoDate(r repository) time.Time {
-	var best time.Time
-	for _, b := range r.Branches {
-		if t, err := time.Parse(time.RFC3339, b.Date); err == nil && t.After(best) {
-			best = t
-		}
-	}
-	return best
+	return parseTime(r.PushedAt)
 }
 func latestRun(r repository) *run {
 	for i := range r.Runs {
@@ -1658,38 +1655,480 @@ func (m model) View() string {
 	if m.agentWorkloadMode {
 		return m.agentWorkloadView()
 	}
-	if m.width < 110 {
-		return m.narrowView()
+	if m.width < 40 {
+		return "Enlarge terminal to at least 40 columns for the operations dashboard."
 	}
+	switch m.focus {
+	case 1:
+		return m.repositoriesView()
+	case 2:
+		return m.ciQueueView()
+	default:
+		return m.overviewView()
+	}
+}
+
+func (m model) renderTabs(w int) string {
+	labels := []string{"Overview", "Repositories", "CI queue"}
+	var parts []string
+	for i, label := range labels {
+		if i == m.focus {
+			parts = append(parts, selectStyle.Render(" "+label+" "))
+		} else {
+			parts = append(parts, mutedStyle.Render(" "+label+" "))
+		}
+	}
+	line := strings.Join(parts, mutedStyle.Render("  │  "))
+	return fit(line, w)
+}
+
+type attentionItem struct {
+	Priority int
+	Kind     string
+	Repo     string
+	Subject  string
+	Detail   string
+	Next     string
+	Age      time.Duration
+	URL      string
+	RunID    int64
+}
+
+func collectAttentionItems(repos []repository, now time.Time) []attentionItem {
+	var items []attentionItem
+	for _, repo := range repos {
+		for _, item := range repo.Runs {
+			switch {
+			case item.Status == "completed" && item.Conclusion == "failure" && item.UpdatedAt != "":
+				age := ageSince(now, item.UpdatedAt)
+				if age <= 24*time.Hour {
+					subject := item.Name
+					if subject == "" {
+						subject = item.Title
+					}
+					items = append(items, attentionItem{Priority: 0, Kind: "CI FAILED", Repo: repo.FullName, Subject: subject, Detail: "Workflow completed with a failure", Next: "Inspect failed run", Age: age, URL: item.URL, RunID: item.ID})
+				}
+			case queuedRun(item):
+				started := item.CreatedAt
+				if started == "" {
+					started = item.UpdatedAt
+				}
+				age := ageSince(now, started)
+				if started != "" && age >= 15*time.Minute {
+					subject := item.Name
+					if subject == "" {
+						subject = item.Title
+					}
+					items = append(items, attentionItem{Priority: 4, Kind: "CI QUEUED", Repo: repo.FullName, Subject: subject, Detail: "Workflow has remained queued", Next: "Check runner queue", Age: age, URL: item.URL, RunID: item.ID})
+				}
+			case item.Status == "in_progress":
+				started := item.StartedAt
+				if started == "" {
+					started = item.CreatedAt
+				}
+				age := ageSince(now, started)
+				if started != "" && age >= 45*time.Minute {
+					subject := item.Name
+					if subject == "" {
+						subject = item.Title
+					}
+					items = append(items, attentionItem{Priority: 5, Kind: "CI RUNNING", Repo: repo.FullName, Subject: subject, Detail: "Long-running workflow; duration alone does not mean it is stuck", Next: "Inspect run if unexpected", Age: age, URL: item.URL, RunID: item.ID})
+				}
+			}
+		}
+
+		for _, pr := range repo.PullRequests {
+			if pr.IsDraft {
+				continue
+			}
+			age := ageSince(now, pr.UpdatedAt)
+			subject := fmt.Sprintf("PR #%d · %s", pr.Number, pr.Title)
+			switch {
+			case pr.ReviewDecision == "CHANGES_REQUESTED":
+				items = append(items, attentionItem{Priority: 1, Kind: "CHANGES REQUESTED", Repo: repo.FullName, Subject: subject, Detail: "GitHub reports requested changes", Next: "Review feedback", Age: age, URL: pr.URL})
+			case pr.MergeStateStatus == "DIRTY":
+				items = append(items, attentionItem{Priority: 2, Kind: "CONFLICTS", Repo: repo.FullName, Subject: subject, Detail: "GitHub reports a dirty merge state", Next: "Inspect branch conflicts", Age: age, URL: pr.URL})
+			case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) == 0:
+				items = append(items, attentionItem{Priority: 3, Kind: "REVIEW NEEDED", Repo: repo.FullName, Subject: subject, Detail: "Review is required and no reviewer is requested", Next: "Choose a reviewer", Age: age, URL: pr.URL})
+			case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) > 0 && age >= 72*time.Hour:
+				items = append(items, attentionItem{Priority: 6, Kind: "REVIEW WAIT", Repo: repo.FullName, Subject: subject, Detail: "Requested review has not been updated for 72h", Next: "Follow up with reviewer", Age: age, URL: pr.URL})
+			}
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Priority != items[j].Priority {
+			return items[i].Priority < items[j].Priority
+		}
+		return items[i].Age > items[j].Age
+	})
+	return items
+}
+
+func ageSince(now time.Time, value string) time.Duration {
+	t := parseTime(value)
+	if t.IsZero() || t.After(now) {
+		return 0
+	}
+	return now.Sub(t)
+}
+
+func ageLabel(age time.Duration) string {
+	if age < time.Minute {
+		return "now"
+	}
+	if age < time.Hour {
+		return fmt.Sprintf("%dm", int(age.Minutes()))
+	}
+	if age < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(age.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(age.Hours()/24))
+}
+
+func attentionStyle(kind string) lipgloss.Style {
+	switch kind {
+	case "CI FAILED", "CHANGES REQUESTED", "CONFLICTS":
+		return badStyle
+	case "REVIEW NEEDED", "CI QUEUED", "REVIEW WAIT", "CI RUNNING":
+		return activeStyle
+	default:
+		return mutedStyle
+	}
+}
+
+func (m model) attentionItems() []attentionItem {
+	return collectAttentionItems(m.repos, time.Now())
+}
+
+func (m model) selectedAttention() *attentionItem {
+	items := m.attentionItems()
+	if len(items) == 0 {
+		return nil
+	}
+	item := items[max(0, min(m.attentionCursor, len(items)-1))]
+	return &item
+}
+
+func (m model) renderOverviewSummary() string {
+	items := m.attentionItems()
+	var openPRs, running, queued int
+	for _, repo := range m.repos {
+		openPRs += repo.PRs
+		running += runningRuns(repo)
+		queued += queuedRuns(repo)
+	}
+	parts := []string{
+		badStyle.Render(fmt.Sprintf("ATTENTION %d", len(items))),
+		titleStyle.Render(fmt.Sprintf("OPEN PRs %d", openPRs)),
+		activeStyle.Render(fmt.Sprintf("CI RUNNING %d", running)),
+		branchStyle.Render(fmt.Sprintf("CI QUEUED %d", queued)),
+		mutedStyle.Render(fmt.Sprintf("REPOSITORIES %d", len(m.repos))),
+	}
+	return fit(strings.Join(parts, mutedStyle.Render("   ·   ")), m.width)
+}
+
+func (m model) renderAttentionRows(w, h int) []string {
+	items := m.attentionItems()
+	rows := []string{mutedStyle.Render(fit("SIGNAL                 REPOSITORY / ITEM                         AGE   NEXT STEP", w))}
+	room := max(0, h-1)
+	if len(items) == 0 {
+		message := "Nothing needs a human decision right now."
+		if len(m.repos) == 0 {
+			message = "Waiting for the first GitHub repository snapshot…"
+		} else if m.busyRepos {
+			message = "Refreshing repository and review state…"
+		}
+		rows = append(rows, goodStyle.Render(message))
+	}
+	start := max(0, min(m.attentionCursor-max(0, room/2), max(0, len(items)-room)))
+	for i := start; i < min(len(items), start+room); i++ {
+		item := items[i]
+		repoName := shortName(item.Repo)
+		kindWidth, repoWidth, ageWidth := 18, max(12, w/4), 5
+		if w < 88 {
+			repoWidth = max(10, w/3)
+		}
+		nextWidth := max(6, w-kindWidth-repoWidth-ageWidth-8)
+		subjectWidth := max(8, w-kindWidth-repoWidth-nextWidth-ageWidth-6)
+		line := attentionStyle(item.Kind).Render(fit(item.Kind, kindWidth)) + " " +
+			titleStyle.Render(fit(repoName, repoWidth)) + " " +
+			mutedStyle.Render(fit(item.Subject, subjectWidth)) + " " +
+			mutedStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
+			mutedStyle.Render(fit(item.Next, nextWidth))
+		if i == m.attentionCursor {
+			line = selectStyle.Width(w).Render(fit(line, w))
+		}
+		rows = append(rows, fit(line, w))
+	}
+	for len(rows) < h {
+		rows = append(rows, "")
+	}
+	return rows[:min(len(rows), h)]
+}
+
+type inFlightItem struct {
+	Priority int
+	Kind     string
+	Repo     string
+	Subject  string
+	Detail   string
+	Age      time.Duration
+	URL      string
+	RunID    int64
+}
+
+func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
+	var items []inFlightItem
+	for _, repo := range repos {
+		for _, item := range repo.Runs {
+			if !isActive(item) {
+				continue
+			}
+			started := item.StartedAt
+			if started == "" {
+				started = item.CreatedAt
+			}
+			subject := item.Name
+			if subject == "" {
+				subject = item.Title
+			}
+			kind, priority := "RUNNING", 0
+			if queuedRun(item) {
+				kind, priority = "QUEUED", 1
+				started = item.CreatedAt
+				if started == "" {
+					started = item.UpdatedAt
+				}
+			}
+			items = append(items, inFlightItem{Priority: priority, Kind: kind, Repo: repo.FullName, Subject: subject, Detail: item.Branch, Age: ageSince(now, started), URL: item.URL, RunID: item.ID})
+		}
+		for _, pr := range repo.PullRequests {
+			if pr.IsDraft || pr.ReviewDecision != "REVIEW_REQUIRED" || len(pr.RequestedReviewers) == 0 {
+				continue
+			}
+			reviewers := strings.Join(pr.RequestedReviewers, ", ")
+			items = append(items, inFlightItem{Priority: 2, Kind: "REVIEW", Repo: repo.FullName, Subject: fmt.Sprintf("PR #%d · %s", pr.Number, pr.Title), Detail: "Waiting on " + reviewers, Age: ageSince(now, pr.UpdatedAt), URL: pr.URL})
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Priority != items[j].Priority {
+			return items[i].Priority < items[j].Priority
+		}
+		return items[i].Age > items[j].Age
+	})
+	return items
+}
+
+func (m model) renderInFlightRows(w, h int) []string {
+	items := collectInFlightItems(m.repos, time.Now())
+	rows := []string{mutedStyle.Render(fit("STATE       REPOSITORY / WORKFLOW OR PR", w))}
+	room := max(0, h-1)
+	if len(items) == 0 {
+		rows = append(rows, mutedStyle.Render("No active CI or explicitly requested reviews."))
+	}
+	for i := 0; i < min(len(items), room); i++ {
+		item := items[i]
+		style := activeStyle
+		if item.Kind == "REVIEW" {
+			style = branchStyle
+		}
+		line := style.Render(fit(item.Kind, 10)) + " " +
+			titleStyle.Render(fit(shortName(item.Repo), max(10, w/4))) + " " +
+			fit(item.Subject, max(8, w/2)) + " " +
+			mutedStyle.Render(ageLabel(item.Age))
+		if item.Detail != "" {
+			line += mutedStyle.Render(" · " + item.Detail)
+		}
+		rows = append(rows, fit(line, w))
+	}
+	for len(rows) < h {
+		rows = append(rows, "")
+	}
+	return rows[:min(len(rows), h)]
+}
+
+func (m model) overviewView() string {
 	w, h := m.width, m.height
-	headerH, metricsH, footerH, gap := 2, 5, 1, 1
-	mainH := max(7, h-headerH-metricsH-footerH-2*gap)
-	leftW := int(float64(w) * 0.57)
-	if leftW < 58 {
-		leftW = 58
+	header := m.renderHeader(w)
+	tabs := m.renderTabs(w)
+	summary := m.renderOverviewSummary()
+	footer := m.renderFooter(w)
+	contentH := max(5, h-7)
+	if w >= 108 && h >= 17 {
+		gap := 1
+		leftW := int(float64(w) * 0.61)
+		rightW := w - leftW - gap
+		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, contentH-2), leftW, contentH, true)
+		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, contentH-2), rightW, contentH, false)
+		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", body, footer)
 	}
-	if leftW > w-45 {
-		leftW = w - 45
+	attentionH := max(4, min(contentH-3, contentH*2/3))
+	waitH := max(3, contentH-attentionH-1)
+	attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, true)
+	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, false)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", attention, waiting, footer)
+}
+
+func repoPortfolioState(repo repository, now time.Time) string {
+	if len(collectAttentionItems([]repository{repo}, now)) > 0 {
+		return "ATTENTION"
 	}
-	rightW := w - leftW - gap
-	ciH := max(5, mainH*62/100)
-	activityH := mainH - ciH - 1
-	if activityH < 4 {
-		activityH = 4
-		ciH = mainH - activityH - 1
+	if runningRuns(repo) > 0 {
+		return "CI RUNNING"
 	}
-	head := m.renderHeader(w)
-	metrics := m.renderMetrics(w)
-	repoPanel := box(m.repoTitle(), m.renderRepos(leftW-2, mainH-2), leftW, mainH, m.focus == 0)
-	ciPanel := box(m.actionsTitle(), m.renderActions(rightW-2, ciH-2), rightW, ciH, m.focus == 2)
-	activityPanel := box(m.activityTitle(), m.renderActivity(rightW-2, activityH-2), rightW, activityH, m.focus == 1)
-	right := lipgloss.JoinVertical(lipgloss.Left, ciPanel, " ", activityPanel)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, repoPanel, strings.Repeat(" ", gap), right)
-	return lipgloss.JoinVertical(lipgloss.Left, head, metrics, " ", body, m.renderFooter(w))
+	if queuedRuns(repo) > 0 {
+		return "CI QUEUED"
+	}
+	for _, pr := range repo.PullRequests {
+		if !pr.IsDraft && pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) > 0 {
+			return "IN REVIEW"
+		}
+	}
+	if repo.PRs > 0 {
+		return "OPEN PRs"
+	}
+	if repo.Issues > 0 {
+		return "OPEN ISSUES"
+	}
+	if ageSince(now, repo.PushedAt) > 30*24*time.Hour {
+		return "QUIET"
+	}
+	return "NO OPEN WORK"
+}
+
+func (m model) renderPortfolioRepos(w, h int) []string {
+	repos := m.visibleRepos()
+	rows := []string{mutedStyle.Render(fit("REPOSITORY                 STATUS        PRs  ISSUES  LAST PUSH   LATEST CI", w))}
+	if len(repos) == 0 {
+		rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter or r to refresh."))
+	}
+	nameW := max(12, min(28, w/3))
+	statusW := 13
+	restW := max(8, w-nameW-statusW-31)
+	for i, repo := range repos {
+		ci := repoCI(*repo)
+		lastPush := "—"
+		if repo.PushedAt != "" {
+			lastPush = shortAge(repo.PushedAt)
+		}
+		state := repoPortfolioState(*repo, time.Now())
+		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
+			ciStyle(state).Render(fit(state, statusW)) + " " +
+			mutedStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
+			mutedStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
+			mutedStyle.Render(fit(lastPush, 10)) + " " +
+			ciStyle(ci).Render(fit(ci, restW))
+		if i == m.cursor {
+			line = selectStyle.Width(w).Render(fit(line, w))
+		}
+		rows = append(rows, fit(line, w))
+	}
+	start := max(0, min(m.cursor-max(0, (h-2)/2), max(0, len(rows)-h)))
+	visible := rows[:0]
+	visible = append(visible, rows[0])
+	if len(rows) > 1 {
+		visible = append(visible, rows[1+start:min(len(rows), 1+start+h-1)]...)
+	}
+	for len(visible) < h {
+		visible = append(visible, "")
+	}
+	return visible[:min(len(visible), h)]
+}
+
+func (m model) repositoriesView() string {
+	w, h := m.width, m.height
+	header, tabs := m.renderHeader(w), m.renderTabs(w)
+	if m.detail {
+		return m.repoDetailView()
+	}
+	bodyH := max(5, h-6)
+	body := box("REPOSITORY PORTFOLIO · SORTED BY OPERATIONAL NEED", m.renderPortfolioRepos(w-2, bodyH-2), w, bodyH, true)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, body, m.renderFooter(w))
+}
+
+func pullRequestReviewText(pr pullRequestSummary) string {
+	switch {
+	case pr.IsDraft:
+		return "DRAFT"
+	case pr.MergeStateStatus == "DIRTY":
+		return "CONFLICTS"
+	case pr.ReviewDecision == "CHANGES_REQUESTED":
+		return "CHANGES REQUESTED"
+	case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) == 0:
+		return "REVIEWER NOT REQUESTED"
+	case pr.ReviewDecision == "REVIEW_REQUIRED":
+		return "AWAITING " + strings.Join(pr.RequestedReviewers, ", ")
+	case pr.ReviewDecision == "APPROVED":
+		return "APPROVED"
+	default:
+		return "REVIEW STATUS UNKNOWN"
+	}
+}
+
+func (m model) repoDetailView() string {
+	w, h := m.width, m.height
+	header, tabs := m.renderHeader(w), m.renderTabs(w)
+	repo := m.selectedRepo()
+	if repo == nil {
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, mutedStyle.Render("No repository selected."), m.renderFooter(w))
+	}
+	content := []string{
+		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch " + fallback(repo.Default, "unknown")),
+		mutedStyle.Render(fmt.Sprintf("Open PRs %d  ·  Open issues %d  ·  Branches %d  ·  Last push %s", repo.PRs, repo.Issues, repo.BranchN, fallback(shortAge(repo.PushedAt), "—"))),
+		"",
+		titleStyle.Render("OPEN PULL REQUESTS"),
+	}
+	if len(repo.PullRequests) == 0 {
+		content = append(content, mutedStyle.Render("No pull request detail returned."))
+	}
+	for _, pr := range repo.PullRequests {
+		line := fmt.Sprintf("#%d  %s", pr.Number, pr.Title)
+		content = append(content, fit(titleStyle.Render(line), w-2))
+		branch := pr.HeadRefName
+		if branch == "" {
+			branch = "branch unknown"
+		}
+		content = append(content, fit(mutedStyle.Render(pullRequestReviewText(pr)+"  ·  "+branch+"  ·  updated "+shortAge(pr.UpdatedAt)+" ago"), w-2))
+	}
+	if repo.PRsTruncated {
+		content = append(content, mutedStyle.Render("Showing the 10 most recently updated PRs; additional PRs are not expanded here."))
+	}
+	content = append(content, "", titleStyle.Render("RECENT CI"))
+	for _, item := range repo.Runs {
+		if isActive(item) || (item.Status == "completed" && item.Conclusion == "failure" && ageSince(time.Now(), item.UpdatedAt) <= 24*time.Hour) {
+			label := item.Name
+			if label == "" {
+				label = item.Title
+			}
+			content = append(content, fit(stateStyle(item).Render(stateText(item))+"  "+label+"  ·  "+fallback(item.Branch, "branch unknown")+"  ·  "+shortAge(item.UpdatedAt)+" ago", w-2))
+		}
+	}
+	if len(content) > h-5 {
+		content = content[:h-5]
+		content = append(content, mutedStyle.Render("… more detail available on GitHub"))
+	}
+	panel := box("REPOSITORY DETAIL", content, w, max(6,h-5), true)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, panel, m.renderFooter(w))
+}
+
+func (m model) ciQueueView() string {
+	w, h := m.width, m.height
+	header, tabs := m.renderHeader(w), m.renderTabs(w)
+	bodyH := max(5, h-6)
+	body := box(fmt.Sprintf("CI QUEUE · %d RUNNING · %d QUEUED", m.runningCI(), m.queuedCI()), m.renderActions(w-2, bodyH-2), w, bodyH, true)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, body, m.renderFooter(w))
+}
+
+func fallback(value, otherwise string) string {
+	if value == "" {
+		return otherwise
+	}
+	return value
 }
 
 func (m model) renderHeader(w int) string {
-	brand := titleStyle.Render("GH FLEET  /  AGENT OPERATIONS")
+	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
 	login := mutedStyle.Render("  " + m.login)
 	state := "SYNCING"
 	if m.busyRepos && len(m.repos) > 0 {
@@ -1697,7 +2136,7 @@ func (m model) renderHeader(w int) string {
 	} else if m.busyRepos {
 		state = "FETCHING ACCOUNT"
 	} else if m.lastErr != "" {
-		state = "OFFLINE · CACHED DATA"
+		state = "STALE · CACHED DATA"
 	} else if !m.lastRepos.IsZero() {
 		state = "CONNECTED · " + shortAge(m.lastRepos.Format(time.RFC3339)) + " ago"
 	}
@@ -1706,8 +2145,10 @@ func (m model) renderHeader(w int) string {
 		status = badStyle.Render("● " + state)
 	}
 	left := brand + login
-	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" + mutedStyle.Render(fit("Fleet workload  /  agent attribution  /  CI pipeline control", w))
+	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" +
+		mutedStyle.Render(fit("Human operations view  ·  GitHub facts only  ·  Agent runtime: NOT CONNECTED", w))
 }
+
 func metric(label, value, detail string, color lipgloss.Color, w int) string {
 	cw := max(14, w-2)
 	top := lipgloss.NewStyle().Foreground(color).Bold(true).Render(fit(value, cw))
@@ -2679,15 +3120,24 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ move  Tab section  c agent workload  Enter detail/log  / filter  r refresh  ? help  q quit"
+	left := "↑↓ select  Tab view  Enter open  o browser  r refresh  ? help  q quit"
+	switch m.focus {
+	case 1:
+		left = "↑↓ repositories  Enter detail  / filter  o browser  r refresh  Esc back  ? help  q quit"
+		if m.detail {
+			left = "↑↓ repositories  o open GitHub  Esc portfolio  r refresh  ? help  q quit"
+		}
+	case 2:
+		left = "↑↓ runs  Enter/l logs  o browser  r refresh  Tab overview  ? help  q quit"
+	}
 	if m.filtering {
 		left = "FILTER: " + m.filter + "_   type to search  Enter accept  Esc clear"
 	}
 	right := ""
 	if m.lastErr != "" {
 		right = badStyle.Render("⚠ " + m.lastErr)
-	} else if !m.lastRuns.IsZero() {
-		right = mutedStyle.Render("Actions " + shortAge(m.lastRuns.Format(time.RFC3339)) + " ago")
+	} else if !m.lastRepos.IsZero() {
+		right = mutedStyle.Render("GitHub " + shortAge(m.lastRepos.Format(time.RFC3339)) + " ago")
 	}
 	if width(left)+width(right)+1 > w {
 		right = ""
