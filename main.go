@@ -210,6 +210,7 @@ const repoQuery = `query($after:String) {
             reviewRequests(first:5) {
               nodes {
                 requestedReviewer {
+                  __typename
                   ... on User { login }
                   ... on Bot { login }
                   ... on Mannequin { login }
@@ -269,8 +270,9 @@ type repoResponse struct {
 							ReviewRequests struct {
 								Nodes []struct {
 									RequestedReviewer struct {
-										Login string `json:"login"`
-										Name  string `json:"name"`
+										Typename string `json:"__typename"`
+										Login    string `json:"login"`
+										Name     string `json:"name"`
 									} `json:"requestedReviewer"`
 								} `json:"nodes"`
 								Page struct {
@@ -353,6 +355,9 @@ func (c *apiClient) fetchRepositories(ctx context.Context) (string, []repository
 					reviewer := request.RequestedReviewer.Login
 					if reviewer == "" {
 						reviewer = request.RequestedReviewer.Name
+					}
+					if reviewer == "" {
+						reviewer = strings.ToLower(request.RequestedReviewer.Typename)
 					}
 					if reviewer != "" {
 						pr.RequestedReviewers = append(pr.RequestedReviewers, reviewer)
@@ -2157,7 +2162,7 @@ func (m model) repoDetailView() string {
 	}
 	panelHeight := max(6, h-5)
 	innerRows := max(1, panelHeight-2)
-	prCapacity := max(1, innerRows-6)
+	prCapacity := max(1, innerRows-9)
 	prStart := max(0, min(m.prCursor-prCapacity/2, max(0, len(repo.PullRequests)-prCapacity)))
 	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
