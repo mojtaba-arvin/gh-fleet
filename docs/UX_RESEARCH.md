@@ -77,3 +77,19 @@ The Go test suite covers:
 - compact layouts and short terminal heights remaining bounded.
 
 CI continues to run gofmt, go vet, the Go test suite, Python SDK tests, and release-target builds. This UX change adds no runtime dependency, endpoint, or scheduled GitHub request.
+
+
+## Color and motion system (implemented)
+
+The dashboard uses a semantic, high-contrast palette rather than color as decoration:
+
+- **Green** means confirmed healthy or completed successfully.
+- **Red / rose** means a failure or an actionable problem.
+- **Amber** means queued, waiting, or requiring caution.
+- **Cyan / blue** identifies the active workspace, navigation, and current focus.
+- **Violet** is reserved for branch and secondary context so it does not compete with attention states.
+- Muted text is used for metadata, timestamps, and explanatory detail, never for the only indication of a critical state.
+
+Motion is deliberately state-driven, not ambient. A small four-frame spinner animates only while a GitHub or telemetry operation is in progress. It stops when the work is idle, and it does not add a polling request or redraw loop to the normal idle state. The spinner is a progress cue, not a substitute for the textual state label. Set `GH_FLEET_NO_ANIMATION=1` to disable motion; `TERM=dumb` also disables it. Color output continues to follow terminal capabilities and `NO_COLOR` conventions.
+
+The animation cadence is 110 ms and is scheduled only while a tracked operation is busy. This keeps the UI responsive without continuously consuming CPU or visually competing with the operator's task. No flashing, pulsing alerts, or animated list rows are used.
