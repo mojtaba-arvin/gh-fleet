@@ -1785,7 +1785,12 @@ func (m model) renderCommitChart(w, h int) []string {
 			meta += "   · syncing history"
 		}
 		content = append(content, titleStyle.Render(fit(meta, w)))
-		content = append(content, renderBarRows(values, w, 2, 24, scaleMax, now)...)
+		chartRows := renderBarRows(values, w, 2, 24, scaleMax, now)
+		if h < 5 {
+			// Preserve the histogram itself on short terminals; omit the axis labels.
+			chartRows = chartRows[:min(2, len(chartRows))]
+		}
+		content = append(content, chartRows...)
 		if len(content) >= h {
 			break
 		}
@@ -1866,7 +1871,6 @@ func maxInt(values []int) int {
 	}
 	return maximum
 }
-
 
 func intsToFloats(values []int) []float64 {
 	out := make([]float64, len(values))
