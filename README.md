@@ -6,33 +6,33 @@ The goal is to answer operational questions quickly: which agents are working, w
 
 ## Operations dashboard
 
-- **Repository workload:** repositories ranked by operational urgency, with 24h / 7d / 30d unique commits, seven-day trend, distinct commit contributors, active branches, open PRs, and CI state.
-- **CI queue:** running and waiting GitHub Actions workflows plus recent failures, with repository, workflow, branch, triggering actor, and update age.
-- **Observed actor workload:** press **c** for the cross-repository actor matrix. Commit authors and Actions actors are GitHub activity signals, not verified agent process identities.
-- **Repository focus:** select a repository to inspect its activity and pipelines without continuously refreshing unrelated detail.
-- **Workflow logs:** inspect and follow a selected run's logs.
-- **Resilient monitoring:** cached startup, conditional Actions requests, bounded concurrency, retry backoff, and cache retention during API outages.
+The default screen is a human-oriented command center. It puts work that may need a decision ahead of historical activity:
 
-## Repository activity metrics
+- **Needs attention:** recent CI failures, requested changes, PRs requiring review without a requested reviewer, reported merge conflicts, and CI/review waits that have crossed an inspection threshold. Each item shows why it surfaced and the next useful action.
+- **In flight / waiting:** running or queued workflows and PRs with an explicitly requested reviewer.
+- **Repository portfolio:** a plain-language state for each repository, open PR / issue counts, last push age, and latest CI result.
+- **CI queue:** active and recent failed workflows with direct log access.
+- **Repository detail:** the ten most recently updated open PRs with review state and requested reviewers, plus current CI context.
 
-The repository table reports unique commit counts over 24 hours, 7 days, and 30 days; a seven-day trend; distinct commit authors over 30 days; and branches active in the last 7 days. Commits reachable from multiple branches are counted once per repository. Commit authors are counted uniformly: gh-fleet does not infer whether an account is a person, an automation bot, or an AI agent.
+The first screen does not rank repositories or people by commit volume. The optional `a` diagnostic view groups GitHub-observed identities; it does not establish whether an identity is a person, bot, or coding agent.
 
-Default-branch history is paginated over 30 days. For active repositories, recent history is sampled from every branch (up to 20 commits per branch). A `~` prefix marks incomplete history or a branch that reached the sample limit; fleet-wide activity totals are also prefixed when any included repository is incomplete. Definitions and caveats are in [Repository activity metrics](docs/ACTIVITY_METRICS.md).
+See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the information architecture, state rules, layout, keyboard model, accessibility, and acceptance criteria.
 
 ## What the dashboard can and cannot know
 
-GitHub is the source of truth for repository, pull-request, and Actions state. A commit author or Actions actor is an **observed GitHub actor**; it is not proof that an autonomous agent is currently running. A running workflow is a CI state; it does not prove an external agent is blocked waiting for CI. Work performed without a pushed commit or GitHub event is invisible to GitHub-based monitoring.
+The current implementation is GitHub-first. The header explicitly reports **Agent runtime: NOT CONNECTED**. GitHub provides repository, pull-request, review, and Actions facts, but it does not reveal whether an external coding agent is actively thinking, editing files, blocked on a user, or finished. A workflow trigger actor is not necessarily the agent that created the code. A commit author is not proof of a human or agent identity.
 
-To show true agent lifecycle state, gh-fleet needs explicit events from the agent runner/orchestrator. The target event contract and security boundaries are documented in [Agent telemetry](docs/AGENT_TELEMETRY.md). The recommended operator experience and performance budgets are in the [Operations control-plane design](docs/OPERATIONS_DESIGN.md).
+True agent lifecycle state requires explicit events from the agent runner/orchestrator. The target event contract and privacy boundaries are documented in [Agent telemetry](docs/AGENT_TELEMETRY.md). gh-fleet does not synthesize agent states from GitHub usernames or workflow activity.
 
 ## Design principles
 
-- **Truth before inference:** distinguish observed GitHub facts, orchestrator-reported agent state, and gh-fleet-derived indicators.
-- **Action-oriented hierarchy:** surface blocked, failed, stale, and waiting work before historical activity charts.
-- **Progressive disclosure:** overview first; details, logs, and timelines on demand.
-- **Quiet by default:** animations are short state-transition feedback, never a permanent source of CPU or terminal output.
-- **Bounded resource use:** coalesce refreshes, prioritize visible/urgent data, use conditional requests, preserve cache, and back off on errors.
-- **Local-first security:** no telemetry content or credentials in logs/cache; any future event receiver must be opt-in and local-only by default.
+- **Human decisions first:** show a reason and next action, not just a count or chart.
+- **Evidence before inference:** distinguish GitHub facts, future runner-reported facts, and threshold-based hints.
+- **No productivity leaderboard:** commit, PR, and workflow actor counts are not measures of individual productivity.
+- **Progressive disclosure:** overview first; detailed PRs, CI runs, and logs on demand.
+- **Quiet by default:** no persistent animation or one-second redraw timer.
+- **Bounded resource use:** bounded concurrency, explicit refresh cadence, cached data during errors, and detailed history loaded only on demand.
+- **Local-first security:** credentials never enter the cache; private repository metadata remains in an owner-only local cache.
 
 ## Requirements
 
