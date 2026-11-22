@@ -76,10 +76,12 @@ type repository struct {
 	PRs             int       `json:"open_prs"`
 	Issues          int       `json:"open_issues"`
 	BranchN         int       `json:"branch_count"`
-	Branches        []branch  `json:"branches"`
-	Runs            []run     `json:"runs"`
-	Fetched         time.Time `json:"fetched"`
-	BranchesFetched time.Time `json:"branches_fetched"`
+	Branches        []branch     `json:"branches"`
+	Commits         []commitInfo `json:"commits,omitempty"`
+	Runs            []run        `json:"runs"`
+	Fetched         time.Time    `json:"fetched"`
+	BranchesFetched time.Time    `json:"branches_fetched"`
+	CommitsFetched  time.Time    `json:"commits_fetched"`
 }
 
 type diskCache struct {
@@ -387,6 +389,89 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 	return result, "", nil
 }
 
+func (c *apiClient) fetchCommitHistory(ctx context.Context, fullName string) ([]commitInfo, error) {
+	parts := strings.SplitN(fullName, "/", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid repository name %q", fullName)
+	}
+	query := `query($owner:String!,$name:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){defaultBranchRef{target{...on Commit{history(first:100,since:$since){nodes{oid committedDate messageHeadline author{name}}}}}}}}`
+	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	payload, _ := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"owner": parts[0], "name": parts[1], "since": since}})
+	resp, err := c.request(ctx, http.MethodPost, graphQLURL, bytes.NewReader(payload), "")
+	if err != nil { return nil, err }
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		err = responseError(resp)
+		resp.Body.Close()
+		return nil, err
+	}
+	var data struct {
+		Data struct {
+			Repository *struct {
+				Default *struct {
+					Target *struct {
+						History struct {
+							Nodes []struct {
+								OID string `json:"oid"`
+								Date string `json:"committedDate"`
+								Message string `json:"messageHeadline"`
+								Author struct { Name string `json:"name"` } `json:"author"`
+							} `json:"nodes"`
+						} `json:"history"`
+					} `json:"target"`
+				} `json:"defaultBranchRef"`
+			} `json:"repository"`
+		} `json:"data"`
+		Errors []struct { Message string `json:"message"` } `json:"errors"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	resp.Body.Close()
+	if err != nil { return nil, fmt.Errorf("decode commit history for %s: %w", fullName, err) }
+	if len(data.Errors) > 0 { return nil, errors.New(data.Errors[0].Message) }
+	var commits []commitInfo
+	if data.Data.Repository == nil || data.Data.Repository.Default == nil || data.Data.Repository.Default.Target == nil { return commits, nil }
+	for _, item := range data.Data.Repository.Default.Target.History.Nodes {
+		commits = append(commits, commitInfo{SHA:item.OID, Date:item.Date, Msg:item.Message, Author:item.Author.Name})
+	}
+	return commits, nil
+}
+
+type commitHistoryMsg struct {
+	commits map[string][]commitInfo
+	errors map[string]string
+}
+
+func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 55*time.Second)
+		defer cancel()
+		msg := commitHistoryMsg{commits: make(map[string][]commitInfo), errors: make(map[string]string)}
+		sem := make(chan struct{}, 4)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for _, repo := range repos {
+			name := repo.FullName
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					mu.Lock(); msg.errors[name] = ctx.Err().Error(); mu.Unlock()
+					return
+				}
+				defer func(){ <-sem }()
+				items, err := c.fetchCommitHistory(ctx, name)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil { msg.errors[name] = err.Error(); return }
+				msg.commits[name] = items
+			}()
+		}
+		wg.Wait()
+		return msg
+	}
+}
+
 func (c *apiClient) fetchLog(ctx context.Context, repo string, id int64) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "run", "view", strconv.FormatInt(id, 10), "--repo", repo, "--log")
 	var stderr bytes.Buffer
@@ -444,6 +529,8 @@ type tickMsg time.Time
 
 type model struct {
 	api                 *apiClient
+	busyCommitHistory   bool
+	lastCommitHistory   time.Time
 	login               string
 	repos               []repository
 	width, height       int
