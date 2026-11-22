@@ -1503,28 +1503,12 @@ func repoCommitActivity(repo repository, now time.Time) []commitActivity {
 
 func commits(repos []repository, scope string) []commitActivity {
 	var out []commitActivity
-	seen := map[string]bool{}
-	cut := time.Now().Add(-30 * 24 * time.Hour)
-	for _, r := range repos {
-		if scope != "" && r.FullName != scope {
+	now := time.Now()
+	for _, repo := range repos {
+		if scope != "" && repo.FullName != scope {
 			continue
 		}
-		for _, b := range r.Branches {
-			c := commitInfo{SHA: b.SHA, Date: b.Date, Msg: b.Msg}
-			dt, err := time.Parse(time.RFC3339, c.Date)
-			if err != nil || dt.Before(cut) {
-				continue
-			}
-			key := r.FullName + ":" + c.SHA
-			if c.SHA == "" {
-				key = r.FullName + ":" + b.Name + ":" + c.Date
-			}
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, commitActivity{Repo: r.FullName, Branch: b.Name, Commit: c})
-		}
+		out = append(out, repoCommitActivity(repo, now)...)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Commit.Date > out[j].Commit.Date })
 	return out
@@ -2723,10 +2707,12 @@ func (m model) helpView() string {
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"ATTRIBUTION + DATA",
-		"  Commit authors use GitHub login where available.",
+		"  Commit authors use GitHub login where available; human and automation accounts are counted uniformly.",
 		"  Actions actors identify who triggered a workflow; this is not an agent heartbeat.",
-		"  Commit activity combines default-branch history with recent feature-branch history for recently pushed repositories.",
-		"  Repositories refresh every 3 minutes; Actions and commits every 60 seconds.",
+		"  Activity counts show unique commits over 24h / 7d / 30d, including active feature branches.",
+		"  People counts are distinct commit authors over 30 days; BR counts branches active in the last 7 days.",
+		"  A ~ prefix means history is incomplete or a branch reached the 20-commit sample limit.",
+		"  Repository metadata and commit history refresh every 3 minutes; Actions refresh every 60 seconds.",
 		"  Cached data remains visible during API outages.",
 	}
 	return box("HELP", lines, m.width-4, m.height-2, true)
