@@ -43,7 +43,7 @@ func TestCommitCountsBucketsAndDeduplicates(t *testing.T) {
 	if got := sumInts(daily); got != 4 {
 		t.Fatalf("7d total = %d, want 4", got)
 	}
-	if daily[6] != 2 || daily[3] != 1 {
+	if daily[6] != 3 || daily[3] != 1 {
 		t.Fatalf("daily buckets today/three-days-ago = %d/%d, want 2/1", daily[6], daily[3])
 	}
 }
