@@ -1,172 +1,146 @@
-# Operations control-plane design
+# Operations dashboard design
 
 ## Product objective
 
-gh-fleet is an **operator console for coordinating AI coding agents across repositories**, not a contribution-graph viewer. Its primary job is to help an operator decide:
+gh-fleet is a human-facing delivery operations console across GitHub repositories, pull requests, and CI pipelines. Its first screen should let an operator answer, within seconds:
 
-1. What is actively progressing?
-2. What is waiting, blocked, stale, or failing?
-3. Which agent, repository, branch, pull request, and CI run are connected?
-4. What should be inspected or acted on next?
+1. What needs a human decision or inspection now?
+2. What is progressing or waiting?
+3. Which repository, pull request, or workflow is involved?
+4. What is the next useful action?
+5. How fresh and trustworthy is the displayed evidence?
 
-The overview must be understandable in a few seconds. Historical analytics are supporting context, not the primary screen.
+The overview is an operations queue, not a contribution graph or productivity leaderboard. Historical activity is secondary.
 
-## Evidence model: never confuse signals with state
+## Evidence model
 
-Every displayed status must carry an evidence class:
+Every displayed status belongs to one of three evidence classes:
 
 | Evidence class | Examples | What it proves |
 | --- | --- | --- |
-| GitHub-observed | commit, branch head, PR, Actions run, review | GitHub recorded this event/state |
-| Orchestrator-reported | agent started, heartbeat, waiting for CI, completed | The connected runner reported this lifecycle state |
-| Derived | stale heartbeat, likely idle, risk/priority score | gh-fleet calculated an indicator from explicit inputs |
+| GitHub-observed | Repository push, open PR, review decision, requested reviewer, Actions run | GitHub recorded the fact or state |
+| Orchestrator-reported | Agent started, heartbeat, waiting for CI, completed | A configured runner reported the lifecycle event |
+| Derived hint | Queued for 18m, running for 52m, stale heartbeat | gh-fleet calculated a cue from explicit inputs |
 
-Do not infer a live agent from a commit author, workflow actor, branch name, or open PR. Do not infer that an agent is waiting for CI merely because a workflow is running. Render unknown as **Unknown / Not connected**, not Idle.
+Never infer that an agent is live from a commit author, branch name, open PR, or Actions trigger actor. A running workflow does not prove an external agent is waiting for CI. Render a missing agent source as **Agent runtime: NOT CONNECTED**, not as zero agents, idle, or healthy.
+
+Derived thresholds are inspection prompts rather than diagnoses. For example, "queued for 18m" is supported; "CI is stuck" is not. Thresholds are not SLAs unless an operator explicitly configures them.
 
 ## Information architecture
 
 ### 1. Overview (default)
 
-The first screen is designed for a human operator, not as an agent activity chart. Its questions are:
+The default page is designed around human action and includes:
 
-- What needs a human decision now?
-- What is progressing or waiting?
-- Which repository, PR, or workflow is involved?
-- What is the next action?
+- A source/freshness header with GitHub connection state and an explicit agent-runtime-not-connected notice until runner telemetry exists.
+- A compact summary: actionable items, open PRs, running CI, queued CI, and monitored repositories.
+- **Needs attention**, ordered by severity and then age. Each row has a signal, repository and item, age, and next action.
+- **In flight / waiting**, showing running or queued workflows and PRs whose review is explicitly requested.
 
-The screen contains:
-- a source/freshness header, including an explicit "Agent runtime: not connected" state until runner telemetry exists;
-- a small summary strip for actionable items, open PRs, running CI, queued CI, and repository count;
-- a prioritized **Needs attention** list with a concrete GitHub fact, age, next action, and destination;
-- an **In flight / waiting** list for current CI and explicitly requested PR reviews.
+Do not put commit counts, contributor totals, actor matrices, or charts in the headline strip. Do not rank people, agents, or repositories by raw activity.
 
-The initial attention rules are recent CI failure, changes requested, review required without a requested reviewer, reported dirty merge state, queued CI older than 15 minutes, running CI older than 45 minutes, and requested review without an update for 72 hours. These are inspection cues, not diagnoses that a process is stuck or an SLA violation. Draft PRs are excluded from review-ready attention.
+### 2. Attention classification
 
-### 2. Repositories
+The current implementation uses these initial rules:
 
-The portfolio view has one row per repository, sorted by operational need rather than commit count. Each row shows a plain-language state, open PR and issue counts, last push age, and latest CI signal.
+| Priority | Signal | Rule | Operator cue |
+| --- | --- | --- | --- |
+| 1 | CI failed | Failed workflow updated within 24h | Inspect failed run/logs |
+| 2 | Changes requested | Non-draft PR decision is CHANGES_REQUESTED | Review feedback |
+| 3 | Merge conflict | Non-draft PR merge state is DIRTY | Inspect branch conflicts |
+| 4 | Reviewer not requested | Non-draft PR decision is REVIEW_REQUIRED, no requested reviewer | Choose a reviewer |
+| 5 | CI queued | Queue age >= 15m | Check runner queue |
+| 6 | CI running | Run age >= 45m | Inspect if unexpected |
+| 7 | Review follow-up | Review requested, no update for >= 72h | Follow up with reviewer |
 
-Repository detail shows the latest ten open PRs and their review decision / requested reviewers, current CI context, and links to GitHub. Additional PRs remain included in the total count; the detail view marks when its ten-item sample is truncated.
+A draft PR is not treated as review-ready. A requested reviewer is not treated as a completed review. An approved PR is not an attention item. Old failures outside the 24h window are not in the urgent list.
 
-### 3. CI queue
+The duration thresholds do not prove work is stuck. The UI should describe the observable fact and the suggested next check. If data is missing, do not synthesize a healthy value or zero age.
 
-The CI queue separates running, queued, and recent failed workflows. It shows workflow, repository, branch, trigger actor, update age, and log access. A trigger actor is never treated as an agent owner. Successful historical runs remain out of the urgent queue.
+### 3. Repository portfolio and detail
 
-### 4. GitHub identities
+The portfolio has one row per repository and is sorted by operational need, not popularity or commit volume. It shows:
+- a plain-language state (attention, CI running, CI queued, in review, open PRs, open issues, quiet, or no open work);
+- repository name;
+- open PR and issue counts;
+- last push age;
+- latest CI signal.
 
-An optional diagnostic view groups commit authors and Actions trigger actors. It is not a workload score and does not infer human-versus-agent identity. It is explicitly labelled as observed GitHub identities.
-
-### 5. Timeline / event feed
-
-A future timeline may show meaningful GitHub and orchestrator events, but only when event ordering, correlation, and source freshness can be represented accurately. Do not stream every commit or tool event into the operator's primary view.
-
-### 2. Agents
-
-An agent list and detail view should show stable agent ID and display name; runner/orchestrator; current task and repository/branch/PR; explicit lifecycle state and reason; start time and elapsed duration; heartbeat age; bounded progress text; and recent lifecycle events with related CI runs.
-
-Do not expose prompts, model chain-of-thought, raw tool inputs, environment variables, or secrets.
-
-### 3. Repositories
-
-Show active tasks and agents, branch/PR associations, required/recent CI state, failing checks, review requests, unresolved review conversations, and recent commits. Commit-volume charts are secondary. A small sparkline is acceptable only when it helps compare recent activity.
+Selecting a repository opens detail with the ten most recently updated open PRs, review decisions, requested reviewers, branch context, and current/recent failed CI runs. The total open PR count remains complete; the UI marks when the ten-item detail sample is truncated.
 
 ### 4. CI queue
 
-Separate queued, running, successful, failed, cancelled, and skipped. Show workflow, job/check, repository, branch, PR, trigger actor, duration, queue age, last update, and a direct route to logs. A run's trigger actor is not automatically the agent that owns the task; correlate through an explicit task/run association when available.
+Show running, queued, and recent failed workflow runs. Include workflow, repository, branch, trigger actor, state, update/queue age, and direct log access. The trigger actor is labelled as such; it is not treated as task owner or agent identity. Successful historical runs are not mixed into the urgent queue.
 
-### 5. Timeline / event feed
+### 5. GitHub identity diagnostic
 
-Use a chronological, filterable feed for meaningful changes: task started, waiting, resumed, PR opened, CI queued/running/failed/passed, review requested/received, completed, and cancelled. Group repeated low-value progress updates. Never stream every token or raw tool argument.
+The optional diagnostic view groups observed commit authors and Actions trigger actors. It is not an agent list, team performance report, or productivity measure. It must keep the source distinction visible and must not imply that GitHub usernames represent people or autonomous agents.
 
-## Status lifecycle
+The default overview does not load 30-day commit histories or branch activity samples. The diagnostic loads this data only when explicitly opened.
 
-Use explicit states with documented transitions:
+## Interaction model
 
-- starting
-- working
-- waiting (required reason: ci, review, approval, user, dependency, rate_limit, external_tool)
-- blocked
-- completed
-- failed
-- cancelled
-- unknown (no trustworthy current signal)
+- `Tab` / `Shift+Tab`: Overview, Repositories, CI queue.
+- `↑` / `↓` or `j` / `k`: navigate the selected queue/list.
+- `Enter`: open selected attention destination, repository detail, or CI logs depending on the current view.
+- `o`: open the selected GitHub destination in a browser.
+- `l`: open selected workflow logs.
+- `a`: open optional observed-identity diagnostic.
+- `/`: filter repositories.
+- `r`: refresh GitHub data.
+- `Esc`: leave detail/filter.
+- `?`: help; `q`: quit.
 
-A heartbeat is liveness evidence, not progress. The UI should calculate stale as a freshness overlay, not as a lifecycle state. For example, an agent may be working with a stale heartbeat or waiting for CI with a stale heartbeat.
+The footer should show shortcuts relevant to the current view. No GitHub-only control should imply that gh-fleet can pause/resume or otherwise control an external agent.
 
-Use a configurable heartbeat interval. Initial recommendation: mark stale after three missed intervals, with a minimum grace period. Do not convert stale directly to failed.
+## Visual and responsive behavior
 
-## Visual language and motion
+- Prefer a clear type hierarchy, aligned data, concise status labels, and restrained separators.
+- Red indicates explicit failure or conflict; amber indicates waiting or follow-up; cyan/blue indicates current activity; green indicates a confirmed clear state.
+- Color reinforces text labels; it is never the only representation of state.
+- At wide widths, the overview places attention and in-flight queues side by side. At narrower widths it stacks them while preserving the same priority order.
+- At least 80 columns is recommended; the application supports a focused layout down to 40 columns.
+- The first redesign intentionally has no decorative animation. Essential state is static, always readable, and not hidden behind motion. Refresh scheduling is not an animation loop.
 
-The terminal should feel polished and alive without looking noisy.
+## Resource and API budget
 
-- Use a restrained adaptive palette, consistent status colors, strong typography hierarchy, aligned columns, subtle separators, and compact labels.
-- Reserve saturated colors for actionable states: red for failure, amber for waiting/stale, green for success, blue/cyan for active work. Never rely on color alone; include text/icon labels.
-- Prefer a compact state badge, elapsed time, and progress indicator over large decorative charts.
-- Use short transition animations when an item changes state or a refresh completes: subtle spinner, brief highlight, or a small progress sweep.
-- Never continuously animate every row. Animate only visible, active components and only while an operation is actually in progress.
-- Provide a no-animation/reduced-motion mode and automatically disable motion for non-interactive output, TERM=dumb, NO_COLOR, and constrained environments when detection is reliable.
-- Do not blink critical errors. Avoid rapid full-screen redraws, scrolling marquees, and decorative ASCII art that consumes vertical space.
-- Keep all essential information visible in a static frame.
+- Network, filesystem, and process work stay outside Bubble Tea `Update` and `View`.
+- Repository summaries (including recent PR/review metadata) are fetched with repository metadata every three minutes.
+- Actions summaries refresh every 60 seconds with a maximum of four concurrent repository requests; a selected repository's Actions view refreshes every 20 seconds.
+- CI logs are fetched only after explicit selection and poll every 15 seconds while live log mode is enabled.
+- Commit/branch activity history is not fetched for the overview. It is loaded on demand by the identity diagnostic, with at most four concurrent repositories and a five-minute refresh cadence.
+- The dashboard checks refresh schedules every 15 seconds; no one-second idle animation tick is required.
+- Preserve cached content during transient failures, expose stale/error state, use conditional requests where available, and back off after errors.
+- Fetch summary data first; logs and expanded detail remain on demand.
 
-Suggested motion policy: one low-frequency activity indicator while a request/task is active; one short (roughly 300–700 ms) transition accent on meaningful state changes; no idle animation. Animation ticks should stop when no animated component is visible or active. Coalesce multiple events into one render update.
+## Agent lifecycle integration (future)
 
-## Resource and API budgets
+GitHub is not an agent runtime. To display actual agent state, gh-fleet needs an opt-in runner/orchestrator event source. Its target schema, local JSONL transport, lifecycle reducer, heartbeat freshness, correlation rules, and privacy constraints are defined in [Agent telemetry](AGENT_TELEMETRY.md).
 
-### Rendering and CPU
+When that source is connected, the UI should display explicit task state separately from GitHub state. Stable `agent_id` and `task_id` identify work; workflow runs and PRs are correlated only through explicit IDs or trusted adapter evidence. Repository and branch alone may suggest a possible match but must not silently confirm it.
 
-- Keep Bubble Tea's model/update/view flow; network and filesystem work must stay in commands, never block Update or View.
-- Make View deterministic and cheap. Precompute expensive aggregates when data changes, not on every animation tick.
-- Reuse styles and cached derived values; render only visible rows for long lists.
-- Use event-driven UI changes. Animation ticks exist only during an active animation and stop immediately afterward.
-- Add a reduced-motion/static mode. A static screen must not require a periodic tick.
-- Avoid migrating Bubble Tea major versions solely for visual effects. Benchmark and test terminal compatibility before a major upgrade.
+Never collect prompts, model reasoning, full model outputs, raw tool inputs/results, secrets, environment variables, or credentials. A heartbeat means liveness, not progress. Stale is a freshness overlay, not a lifecycle state, and must not become failed automatically.
 
-### GitHub API
+The TUI must not become a public webhook server. Start with a local, owner-only JSONL spool. Add a loopback-authenticated receiver or remote relay only when a real multi-host requirement justifies its operational and security cost.
 
-GitHub recommends webhooks rather than continuous polling when a reachable service can receive them. For a standalone CLI without a daemon, polling remains a fallback:
+## Metrics policy
 
-- Poll on fixed, purposeful schedules; never create one timer per row/repository.
-- Use conditional requests (ETag / If-None-Match) and preserve cached data on 304 and transient errors.
-- Prioritize visible and urgent entities; coalesce duplicate refreshes.
-- Use a single request scheduler per API origin with a small bounded in-flight limit; avoid request fan-out and respect Retry-After, rate-limit reset, and exponential backoff.
-- Fetch summaries first; load jobs, logs, reviews, and detailed branch history only on demand.
-- Stop background refresh when suspended or when the relevant detail view is inactive.
-- Expose last successful refresh, next retry, and API rate-limit status so stale data is not mistaken for current data.
+Commit counts, PR counts, branch counts, and workflow trigger activity are diagnostic signals. They are not measures of effort, complexity, quality, or individual productivity. A large merge commit and a one-line fix are each a commit; raw activity is easy to misinterpret and game.
 
-### Local storage
+Do not build per-person utilization or activity rankings from GitHub metadata. The overview prioritizes delivery flow, review handoffs, CI failures, and concrete operator decisions.
 
-Keep the cache bounded and atomic, with owner-only permissions. Store only metadata needed to restore the last useful view. Do not persist credentials or sensitive agent content. Bound event history by age and size; rotate or compact append-only event data.
-
-## Architecture recommendation
-
-Keep the TUI as a thin operator client with explicit data-source boundaries:
-
-- GitHubSource: repositories, branches, PRs, reviews, Actions, logs.
-- AgentEventSource: orchestrator lifecycle events and heartbeats.
-- Correlation: link agent task IDs to repository, branch, PR, and workflow run IDs.
-- StateReducer: validate, deduplicate, order, and reduce lifecycle events into current task state.
-- Scheduler: prioritize/coalesce refreshes, apply budgets, retry/backoff.
-- Presentation: pure rendering of view models; no network or filesystem calls.
-
-Do not make the terminal itself a public webhook server. The safest first integration is a local event source (JSONL spool or Unix-domain socket) written by a local runner/adapter. Bind any optional HTTP receiver to loopback only by default, authenticate it, and make remote exposure an explicitly documented deployment. A hosted multi-machine relay can be added later if justified.
-
-## Delivery sequence
-
-1. **Telemetry contract and adapter:** stable event schema, lifecycle reducer, stale detection, correlation IDs, validation, privacy controls.
-2. **Agent/task view:** render real agent tasks separately from observed GitHub actors; preserve GitHub-only mode when no source is configured.
-3. **CI and PR correlation:** associate runs/PRs to tasks using explicit IDs and head SHA/branch as secondary matching evidence; ambiguous matches remain unlinked.
-4. **Operator actions:** open logs/PRs, retry failed jobs, cancel runs, and request agent pause/resume only when the provider supports it and authorization is clear.
-5. **Webhook/relay option:** add only if multiple hosts or near-real-time updates require a persistent receiver.
-6. **Visual polish and profiling:** bounded state-transition animation, reduced motion, rendering benchmarks, large-fleet API/load tests.
+DORA measures require production deployment and outcome events. GitHub commit and CI data alone cannot establish deployment frequency, change lead time to production, change failure rate, failed-deployment recovery time, or deployment rework rate. Do not label GitHub-only proxies as DORA metrics.
 
 ## Acceptance criteria
 
-- Actual orchestrator state is distinguishable from GitHub-observed activity at a glance.
-- A task can be linked to an agent, repository, branch, PR, and CI run without usernames alone.
-- Stale telemetry is visible and never silently treated as failure or idle.
-- No network/filesystem operation blocks the UI event loop.
-- Idle mode performs no animation-driven redraws.
-- Animation can be disabled and never hides state text.
-- API requests are bounded, deduplicated, conditional where supported, and back off on rate limits.
-- The overview remains useful with telemetry disconnected and with a narrow terminal.
-- Prompts, outputs, tool arguments, credentials, and environment data are not collected by default.
+- A first-time operator can find attention items and their next actions without opening an actor matrix or reading activity charts.
+- The overview contains no contribution calendar, commit leaderboard, or per-person productivity ranking.
+- Agent state is explicitly not connected until backed by runner telemetry.
+- PR and CI items link to the GitHub object that supports their displayed state.
+- Threshold cues state observable facts and do not diagnose stalled work.
+- 80-column layout stacks cleanly and keeps the same priorities; 40-column minimum remains usable.
+- Cached data and freshness/error state remain visible during API failures.
+- No network or filesystem operation blocks the UI event loop.
+- Idle mode has no animation-driven redraw loop.
+- History and logs are loaded only when the operator requests them.
+- Sensitive agent content and credentials are excluded by default.
