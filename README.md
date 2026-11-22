@@ -8,7 +8,7 @@ The dashboard is designed for large terminal windows. It shows an account overvi
 
 - Account-wide repository table with branch, open pull request, open issue, and latest Actions status counts.
 - Aggregate cards for repositories, branches, open pull requests, open issues, running workflows, recent failures, and recently updated branch heads.
-- Independent commit-activity charts for every repository, with hourly buckets for the last 24 hours and daily buckets for the last 7 days; each chart is scoped to that repository's default branch.
+- A dedicated activity analytics screen with a separate, labeled histogram card for every repository. Each card shows total commits, peak bucket, active buckets, default branch, and a time axis; 24-hour and 7-day charts use hourly and daily buckets respectively.
 - Per-repository count of currently running GitHub Actions jobs (only `in_progress`; queued runs are not counted).
 - Repository detail includes recent commits and authors for its branches; Actions runs are prioritized by activity and failure state, with logs for the selected run.
 - Repository names are shown without repeating the account owner; the owner is included when repository names collide.
@@ -71,7 +71,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 ## Refresh and network behavior
 
 - The account snapshot and default-branch commit history refresh every 3 minutes.
-- Commit history queries up to the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The `c` charts screen renders each repository independently; `1` shows 24 hourly buckets and `2` shows 7 daily buckets. Charts share a comparable per-bucket Y scale.
+- Commit history queries up to the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The `c` analytics screen renders a separate histogram for every repository; `1` shows 24 hourly buckets and `2` shows 7 daily buckets. All repository charts in the selected period share one Y-axis scale so bar heights can be compared honestly. Repositories are ordered by activity in the selected period.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
