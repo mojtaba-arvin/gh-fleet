@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	ntTimeseries "github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
 	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -1663,33 +1662,101 @@ func sumInts(values []int) int {
 	return total
 }
 
+func scaledBarHeights(values []int, height, scaleMax int) []int {
+	out := make([]int, len(values))
+	maximum := max(1, scaleMax)
+	if height <= 0 {
+		return out
+	}
+	for i, value := range values {
+		if value <= 0 {
+			continue
+		}
+		out[i] = (value*height + maximum - 1) / maximum
+	}
+	return out
+}
+
+func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, now time.Time) []string {
+	if len(values) == 0 || chartWidth < len(values) || chartHeight < 1 {
+		return []string{mutedStyle.Render("No activity in this range")}
+	}
+	heights := scaledBarHeights(values, chartHeight, scaleMax)
+	gap := 1
+	slot := max(1, (chartWidth-gap*(len(values)-1))/len(values))
+	barStyle := lipgloss.NewStyle().Foreground(cyan).Bold(true)
+	rows := make([]string, 0, chartHeight+2)
+	for level := chartHeight; level >= 1; level-- {
+		var line strings.Builder
+		for i, barHeight := range heights {
+			if i > 0 {
+				line.WriteString(strings.Repeat(" ", gap))
+			}
+			if barHeight >= level {
+				line.WriteString(barStyle.Render(strings.Repeat("█", slot)))
+			} else if level == 1 {
+				line.WriteString(mutedStyle.Render(strings.Repeat("·", slot)))
+			} else {
+				line.WriteString(strings.Repeat(" ", slot))
+			}
+		}
+		rows = append(rows, line.String())
+	}
+	baseline := mutedStyle.Render(strings.Repeat("─", min(chartWidth, slot*len(values)+gap*(len(values)-1))))
+	rows = append(rows, baseline)
+
+	var labels strings.Builder
+	if period == 7 {
+		start := now.UTC().Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
+		for i := range values {
+			if i > 0 {
+				labels.WriteString(strings.Repeat(" ", gap))
+			}
+			label := start.Add(time.Duration(i) * 24 * time.Hour).Format("Mon 02")
+			labels.WriteString(fit(label, slot))
+		}
+	} else {
+		axisWidth := slot*len(values) + gap*(len(values)-1)
+		axis := []rune(strings.Repeat(" ", axisWidth))
+		for _, tick := range []struct {
+			index int
+			label string
+		}{{0, "00h"}, {6, "06h"}, {12, "12h"}, {18, "18h"}, {23, "24h"}} {
+			position := tick.index * (slot + gap)
+			for offset, char := range tick.label {
+				if position+offset < len(axis) {
+					axis[position+offset] = char
+				}
+			}
+		}
+		labels.WriteString(string(axis))
+	}
+	rows = append(rows, mutedStyle.Render(strings.TrimRight(labels.String(), " ")))
+	return rows
+}
+
 func (m model) renderCommitChart(w, h int) []string {
 	now := time.Now().UTC()
-	repos := append([]*repository(nil), m.chartRepos()...)
-	sort.SliceStable(repos, func(i, j int) bool {
-		return sumInts(repoCommitBuckets(*repos[i], now, 24)) > sumInts(repoCommitBuckets(*repos[j], now, 24))
-	})
+	repos := m.chartRepos()
 	content := make([]string, 0, h)
 	if len(repos) == 0 {
 		return []string{mutedStyle.Render("Waiting for repository history…")}
 	}
-	chartW := min(24, max(10, w-4))
-	visibleRepos := min(len(repos), max(1, h/3))
-	for _, repo := range repos[:visibleRepos] {
+	visible := min(len(repos), max(1, h/5))
+	for _, repo := range repos[:visible] {
 		values := repoCommitBuckets(*repo, now, 24)
-		maxBucket := maxInt(values)
-		chart := ntSparkline.New(chartW, 2,
-			ntSparkline.WithMaxValue(float64(max(1, maxBucket))),
+		name := fit(m.repoLabel(repo), max(8, w-25))
+		meta := fmt.Sprintf("%d commits · peak %d", sumInts(values), maxInt(values))
+		content = append(content, titleStyle.Render(name)+mutedStyle.Render("  "+meta))
+		chart := ntSparkline.New(
+			max(16, min(28, w-2)),
+			2,
+			ntSparkline.WithMaxValue(float64(max(1, maxInt(values)))),
 			ntSparkline.WithNoAutoMaxValue(),
-			ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
+			ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)),
+		)
 		chart.PushAll(intsToFloats(values))
 		chart.DrawColumnsOnly()
-		name := fit(m.repoLabel(repo), max(8, w-chartW-15))
-		label := fmt.Sprintf(" %d / 24h", sumInts(values))
-		if repo.CommitsFetched.IsZero() {
-			label += " · loading"
-		}
-		content = append(content, titleStyle.Render(name)+mutedStyle.Render(label))
 		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
 		if len(content) >= h {
 			break
@@ -1787,82 +1854,73 @@ func (m model) commitChartsView() string {
 	if period != 7 {
 		period = 24
 	}
-	periodLabel := "LAST 24 HOURS · HOURLY"
+	periodLabel := "24 HOURS  /  HOURLY"
 	if period == 7 {
-		periodLabel = "LAST 7 DAYS · DAILY"
+		periodLabel = "7 DAYS  /  DAILY"
 	}
 	head := m.renderHeader(w)
-	selector := titleStyle.Render("COMMIT TRENDS") + "   " +
-		selectStyle.Render("  1 · 24H  ") + " " +
-		mutedStyle.Render("2 · 7D") + "   " +
-		mutedStyle.Render(periodLabel)
-	if period == 7 {
-		selector = titleStyle.Render("COMMIT TRENDS") + "   " +
-			mutedStyle.Render("1 · 24H") + " " +
-			selectStyle.Render("  2 · 7D  ") + "   " +
-			mutedStyle.Render(periodLabel)
+	selector := titleStyle.Render("REPOSITORY ACTIVITY") + "   "
+	if period == 24 {
+		selector += selectStyle.Render("  1  24H  ") + " " + mutedStyle.Render("2  7D")
+	} else {
+		selector += mutedStyle.Render("1  24H") + " " + selectStyle.Render("  2  7D  ")
 	}
+	selector += "   " + mutedStyle.Render(periodLabel)
+
 	repos := m.chartRepos()
 	if len(repos) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render("No repositories available in this scope."), "Esc to return")
 	}
-	chartH := min(8, max(6, h/4))
-	cardH := chartH + 4
+	chartH := 4
+	cardH := chartH + 6
 	visible := max(1, (h-7)/(cardH+1))
 	maxStart := max(0, len(repos)-visible)
 	startIndex := min(m.chartScroll, maxStart)
 	endIndex := min(len(repos), startIndex+visible)
-	chartW := max(42, w-8)
+	chartW := max(48, w-10)
 	scaleMax := 1
 	for _, repo := range repos {
 		scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period)))
 	}
+
 	var cards []string
 	for _, repo := range repos[startIndex:endIndex] {
 		values := repoCommitBuckets(*repo, now, period)
-		maximum := maxInt(values)
-		startTime := now.Add(-24 * time.Hour)
-		step := time.Hour
 		total := sumInts(values)
-		bucketLabel := "hour"
-		formatter := func(i int, value float64) string {
-			return time.Unix(int64(value), 0).UTC().Format("15h")
-		}
-		if period == 7 {
-			startTime = now.Truncate(24 * time.Hour).Add(-6 * 24 * time.Hour)
-			step = 24 * time.Hour
-			bucketLabel = "day"
-			formatter = func(i int, value float64) string {
-				return time.Unix(int64(value), 0).UTC().Format("Mon")
+		peak := maxInt(values)
+		active := 0
+		for _, value := range values {
+			if value > 0 {
+				active++
 			}
 		}
-		endTime := startTime.Add(time.Duration(len(values)) * step)
-		chart := ntTimeseries.New(chartW, chartH,
-			ntTimeseries.WithTimeRange(startTime, endTime),
-			ntTimeseries.WithYRange(0, float64(scaleMax)),
-			ntTimeseries.WithXYSteps(4, 2),
-			ntTimeseries.WithXLabelFormatter(formatter),
-			ntTimeseries.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
-		for i, value := range values {
-			chart.Push(ntTimeseries.TimePoint{Time: startTime.Add(time.Duration(i)*step + step/2), Value: float64(value)})
+		branch := repo.Default
+		if branch == "" {
+			branch = "default branch unavailable"
 		}
-		chart.DrawBraille()
-		meta := fmt.Sprintf("%d commits · peak %d / %s · default branch: %s", total, maximum, bucketLabel, fit(repo.Default, 20))
+		name := m.repoLabel(repo)
+		if name == "" {
+			name = repo.FullName
+		}
+		status := fmt.Sprintf("%d COMMITS", total)
 		if repo.CommitsFetched.IsZero() {
-			meta += " · loading"
+			status = "HISTORY LOADING"
 		}
-		content := []string{mutedStyle.Render(meta)}
-		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
-		cards = append(cards, box("REPOSITORY · "+m.repoLabel(repo), content, w, cardH, false))
+		meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(status) +
+			mutedStyle.Render(fmt.Sprintf("   PEAK %d / BUCKET   ·   ACTIVE %d/%d BUCKETS   ·   %s", peak, active, len(values), fit(branch, 20)))
+		chart := renderBarRows(values, chartW, chartH, period, scaleMax, now)
+		content := []string{meta, ""}
+		content = append(content, chart...)
+		cards = append(cards, box("◈  "+name, content, w, cardH+2, false))
 	}
 	if len(cards) == 0 {
 		cards = append(cards, mutedStyle.Render("No chart data available yet."))
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
-	footer := mutedStyle.Render(fmt.Sprintf("Showing %d–%d of %d repositories", startIndex+1, endIndex, len(repos))) +
-		"   ↑↓/j k scroll · PgUp/PgDn page · 1 24h · 2 7d · r refresh · Esc back"
+	footer := mutedStyle.Render(fmt.Sprintf("REPOSITORIES  %d–%d OF %d", startIndex+1, endIndex, len(repos))) +
+		"   ↑↓ / j k scroll   PgUp/PgDn page   1 24h   2 7d   r refresh   Esc back"
 	if m.busyCommitHistory {
-		footer += activeStyle.Render("   · refreshing history")
+		footer += activeStyle.Render("   · syncing")
 	} else if !m.lastCommitHistory.IsZero() {
 		footer += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
 	}
