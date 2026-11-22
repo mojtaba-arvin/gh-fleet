@@ -428,14 +428,13 @@ func TestReadAgentSpoolRejectsPermissiveParentDirectory(t *testing.T) {
 	}
 }
 
-
 func TestOverviewDoesNotReportZeroAgentsBeforeTelemetryIsReadable(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
 		width: 120, height: 30, lastRepos: now,
 		agentEventsPath: "/private/agent-events.jsonl",
-		busyAgentPoll: true,
-		repos: []repository{{FullName: "acme/api", Name: "api"}},
+		busyAgentPoll:   true,
+		repos:           []repository{{FullName: "acme/api", Name: "api"}},
 	}
 	if view := m.View(); !strings.Contains(view, "AGENTS …") {
 		t.Fatalf("connecting source should not report zero agents:\n%s", view)
