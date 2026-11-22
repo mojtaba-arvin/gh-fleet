@@ -61,7 +61,6 @@ func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 	}
 }
 
-
 func TestOverviewPanelsCanBeFocusedAndNavigated(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
@@ -71,13 +70,13 @@ func TestOverviewPanelsCanBeFocusedAndNavigated(t *testing.T) {
 			Runs: []run{{
 				ID: 41, Name: "unit-tests", Status: "in_progress",
 				StartedAt: now.Add(-time.Minute).Format(time.RFC3339),
-				URL: "https://github.com/acme/ops/actions/runs/41",
+				URL:       "https://github.com/acme/ops/actions/runs/41",
 			}},
 			PullRequests: []pullRequestSummary{{
 				Number: 22, Title: "Tighten permissions", ReviewDecision: "REVIEW_REQUIRED",
 				RequestedReviewers: []string{"reviewer-a"},
-				UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339),
-				URL: "https://github.com/acme/ops/pull/22",
+				UpdatedAt:          now.Add(-time.Hour).Format(time.RFC3339),
+				URL:                "https://github.com/acme/ops/pull/22",
 			}},
 		}},
 	}
