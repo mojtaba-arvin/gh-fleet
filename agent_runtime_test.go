@@ -454,7 +454,6 @@ func TestOverviewDoesNotReportZeroAgentsBeforeTelemetryIsReadable(t *testing.T) 
 	}
 }
 
-
 func TestAgentSequenceCannotMoveBackwardAcrossUnsequencedEvents(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	tasks := map[string]agentTask{}
