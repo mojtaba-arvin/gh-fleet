@@ -428,3 +428,75 @@ func TestOverviewResponsiveLayoutAtEightyColumns(t *testing.T) {
 		}
 	}
 }
+
+
+func TestMoveSelectsPullRequestsInRepositoryDetail(t *testing.T) {
+	m := model{
+		focus: 1, detail: true,
+		repos: []repository{{
+			FullName: "acme/api",
+			PullRequests: []pullRequestSummary{
+				{Number: 10, Title: "first"},
+				{Number: 11, Title: "second"},
+				{Number: 12, Title: "third"},
+			},
+		}},
+	}
+	m.move(1)
+	if m.prCursor != 1 {
+		t.Fatalf("PR cursor = %d, want 1", m.prCursor)
+	}
+	m.move(1)
+	m.move(1)
+	if m.prCursor != 2 {
+		t.Fatalf("PR cursor = %d, want 2", m.prCursor)
+	}
+	m.move(1)
+	if m.prCursor != 2 {
+		t.Fatalf("PR cursor moved past final item: %d", m.prCursor)
+	}
+	m.move(-10)
+	if m.prCursor != 0 {
+		t.Fatalf("PR cursor did not clamp to first item: %d", m.prCursor)
+	}
+}
+
+func TestRepositoryDetailShowsSelectablePullRequests(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width: 100, height: 24, focus: 1, detail: true,
+		repos: []repository{{
+			FullName: "acme/api", Name: "api", PRs: 2, PushedAt: now.Format(time.RFC3339),
+			PullRequests: []pullRequestSummary{
+				{Number: 42, Title: "Add checkout retry", ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"reviewer-a"}, UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/42"},
+				{Number: 41, Title: "Fix payment retry", ReviewDecision: "CHANGES_REQUESTED", UpdatedAt: now.Add(-2*time.Hour).Format(time.RFC3339), URL: "https://github.com/acme/api/pull/41"},
+			},
+		}},
+	}
+	view := m.repoDetailView()
+	for _, want := range []string{"OPEN PULL REQUESTS", "ENTER / o OPEN", "#42", "AWAITING reviewer-a", "#41", "CHANGES REQUESTED"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("repository detail missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestCompactOverviewKeepsAgentSourceNoticeVisible(t *testing.T) {
+	m := model{width: 40, height: 14, focus: 0}
+	view := m.View()
+	for _, want := range []string{"NOT CONNECTED", "ATT 0", "NEEDS ATTENTION"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("40-column overview missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestShortTerminalOverviewDoesNotOverflowHeight(t *testing.T) {
+	for _, height := range []int{10, 11, 12, 13, 16, 17} {
+		m := model{width: 80, height: height, focus: 0}
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) > height {
+			t.Errorf("overview rendered %d lines at terminal height %d", len(lines), height)
+		}
+	}
+}
