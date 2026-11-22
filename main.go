@@ -1795,8 +1795,8 @@ func (m model) renderRepos(w, h int) []string {
 	rows := m.visibleRepos()
 	content := make([]string, 0, h)
 	nameW := max(10, w/4)
-	workW, trendW, actorW, ciW := 10, 7, max(7, w/7), 12
-	header := fmt.Sprintf("%-*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H / 7D", trendW, "TREND", actorW, "ACTORS", ciW, "CI")
+	workW, trendW, actorW, ciW, prW := 10, 7, max(7, w/7), 12, 4
+	header := fmt.Sprintf("%-*s %*s %*s %*s %*s %*s", nameW, "REPOSITORY", workW, "24H / 7D", trendW, "TREND", actorW, "ACTORS", ciW, "CI", prW, "PR")
 	content = append(content, mutedStyle.Render(fit(header, w)))
 	room := max(0, h-1)
 	if len(rows) == 0 {
@@ -1819,7 +1819,8 @@ func (m model) renderRepos(w, h int) []string {
 			mutedStyle.Render(fit(fmt.Sprintf("%d/%d", work.Commits24h, work.Commits7d), workW)) + " " +
 			branchStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
 			mutedStyle.Render(fit(actors, actorW)) + " " +
-			ciStyle(ci).Render(fit(ci, ciW))
+			ciStyle(ci).Render(fit(ci, ciW)) + " " +
+			mutedStyle.Render(fit(countFmt(r.PRs), prW))
 		if i == m.cursor {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
