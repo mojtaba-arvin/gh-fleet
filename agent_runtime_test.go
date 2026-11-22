@@ -453,3 +453,48 @@ func TestOverviewDoesNotReportZeroAgentsBeforeTelemetryIsReadable(t *testing.T) 
 		t.Fatalf("connected source should report observed task count:\n%s", view)
 	}
 }
+
+
+func TestAgentSequenceCannotMoveBackwardAcrossUnsequencedEvents(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	tasks := map[string]agentTask{}
+	seen := map[string]struct{}{}
+	var order []string
+	start := agentTestEvent(now, "evt-start", "agent.started", "starting", 0)
+	applyTestAgentEvent(t, tasks, seen, &order, start, now)
+	progress := agentTestEvent(now.Add(2*time.Second), "evt-progress", "agent.progress", "working", 0)
+	applyTestAgentEvent(t, tasks, seen, &order, progress, now.Add(2*time.Second))
+	olderSequenced := agentTestEvent(now.Add(time.Second), "evt-sequenced-old", "agent.waiting", "waiting", 1)
+	olderSequenced.Reason = "ci"
+	if err := applyAgentEvent(tasks, seen, &order, olderSequenced, now.Add(3*time.Second)); err == nil {
+		t.Fatal("sequenced event older than last accepted unsequenced event must be rejected")
+	}
+	task := tasks[agentTaskKey(start.AgentID, start.TaskID)]
+	if task.State != "working" {
+		t.Fatalf("rejected old event changed lifecycle state: %+v", task)
+	}
+}
+
+func TestAgentAttentionItemsOpenExplicitlyCorrelatedGitHubObjects(t *testing.T) {
+	now := time.Now().UTC()
+	cases := []struct {
+		name string
+		task agentTask
+		want string
+	}{
+		{"ci", agentTask{Repository: "acme/api", State: "failed", Reason: "ci", WorkflowRunID: "1234"}, "https://github.com/acme/api/actions/runs/1234"},
+		{"review", agentTask{Repository: "acme/api", State: "blocked", Reason: "review", PullRequest: 42}, "https://github.com/acme/api/pull/42"},
+		{"fallback workflow", agentTask{Repository: "acme/api", State: "failed", WorkflowRunID: "5678"}, "https://github.com/acme/api/actions/runs/5678"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.task.AgentID = "runner"
+			tc.task.TaskID = "task"
+			tc.task.LastSignalAt = now
+			items := collectAgentAttentionItems(map[string]agentTask{"task": tc.task}, now)
+			if len(items) != 1 || items[0].URL != tc.want {
+				t.Fatalf("attention destination = %+v, want URL %q", items, tc.want)
+			}
+		})
+	}
+}
