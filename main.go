@@ -1860,7 +1860,7 @@ func (m model) commitChartsView() string {
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
 	footer := mutedStyle.Render(fmt.Sprintf("Showing %d–%d of %d repositories", startIndex+1, endIndex, len(repos))) +
-		"   ↑↓/j k scroll · PgUp/PgDn page · 1 24h · 2 7d · Esc back"
+		"   ↑↓/j k scroll · PgUp/PgDn page · 1 24h · 2 7d · r refresh · Esc back"
 	if m.busyCommitHistory {
 		footer += activeStyle.Render("   · refreshing history")
 	} else if !m.lastCommitHistory.IsZero() {
