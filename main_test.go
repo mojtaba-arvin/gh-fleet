@@ -160,10 +160,10 @@ func TestRepoWorkloadCountsUniqueCommitsAndAttributesActors(t *testing.T) {
 		}{Login: "ci-actor"}}},
 	}
 	got := repoWorkload(repo, now)
-	if got.Commits24h != 1 || got.Commits7d != 2 {
-		t.Fatalf("commit totals = %d/%d, want 1/2", got.Commits24h, got.Commits7d)
+	if got.Commits24h != 1 || got.Commits7d != 2 || got.Commits30d != 3 {
+		t.Fatalf("commit totals = %d/%d/%d, want 1/2/3", got.Commits24h, got.Commits7d, got.Commits30d)
 	}
-	if strings.Join(got.Actors, ",") != "agent-a,agent-b,ci-actor" {
+	if strings.Join(got.Actors, ",") != "agent-a,agent-b,old-agent" {
 		t.Fatalf("actors = %v", got.Actors)
 	}
 }
@@ -263,5 +263,46 @@ func TestRepoWorkloadIncludesFeatureBranchCommitsAndDeduplicates(t *testing.T) {
 	}
 	if !foundFeatureBranch {
 		t.Fatal("feature branch commit was not attributed to its branch")
+	}
+}
+
+
+func TestRepoWorkloadCountsThirtyDayCommitsAndActiveBranches(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{
+		FullName: "acme/ops",
+		Commits: []commitInfo{
+			{SHA: "today", Date: "2026-11-22T11:00:00Z", AuthorLogin: "human-a"},
+		},
+		Branches: []branch{
+			{Name: "feature/one", History: []commitInfo{
+				{SHA: "week", Date: "2026-11-17T11:00:00Z", AuthorLogin: "agent-a"},
+				{SHA: "month", Date: "2026-11-01T11:00:00Z", AuthorLogin: "human-b"},
+			}},
+			{Name: "feature/two", History: []commitInfo{
+				{SHA: "week-2", Date: "2026-11-18T11:00:00Z", AuthorLogin: "agent-b"},
+			}},
+		},
+	}
+	got := repoWorkload(repo, now)
+	if got.Commits24h != 1 || got.Commits7d != 3 || got.Commits30d != 4 {
+		t.Fatalf("activity = %d/%d/%d, want 1/3/4", got.Commits24h, got.Commits7d, got.Commits30d)
+	}
+	if got.ActiveBranches7d != 3 {
+		t.Fatalf("active branches = %d, want 3", got.ActiveBranches7d)
+	}
+	if len(got.Actors) != 4 {
+		t.Fatalf("contributors = %v, want four distinct commit authors", got.Actors)
+	}
+}
+
+func TestRepoWorkloadMarksSampledBranchHistory(t *testing.T) {
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	repo := repository{Branches: []branch{{Name: "busy", HistoryTruncated: true, History: []commitInfo{
+		{SHA: "recent", Date: "2026-11-22T11:00:00Z", AuthorLogin: "agent"},
+	}}}}
+	got := repoWorkload(repo, now)
+	if !got.ActivitySampled {
+		t.Fatal("expected sampled activity to be marked")
 	}
 }
