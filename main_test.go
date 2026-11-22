@@ -54,7 +54,6 @@ func TestSparklineKeepsZeroBucketsAtBaseline(t *testing.T) {
 	}
 }
 
-
 func TestRepoCommitBucketsAreIndependent(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 30, 0, 0, time.UTC)
 	one := repository{FullName: "acme/one", Commits: []commitInfo{
