@@ -855,6 +855,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.busyBranchHistory = true
 					cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
 				}
+				for _, repo := range m.repos {
+					m.queueRun(repo.FullName, false)
+				}
+				cmds = append(cmds, m.drainRunQueue()...)
 				if len(cmds) > 0 {
 					return m, tea.Batch(cmds...)
 				}
@@ -1595,7 +1599,7 @@ func (m model) View() string {
 	if m.agentWorkloadMode {
 		return m.agentWorkloadView()
 	}
-	if m.width < 90 {
+	if m.width < 110 {
 		return m.narrowView()
 	}
 	w, h := m.width, m.height
@@ -2445,7 +2449,7 @@ func (m model) agentWorkloadView() string {
 		line := titleStyle.Render(fit(a.Name, 18)) + " " + mutedStyle.Render(fmt.Sprintf("%5d / %-5d", a.Commits24h, a.Commits7d)) + " " + activeStyle.Render(fmt.Sprintf("%3d / %-3d", a.Running, a.Waiting)) + " " + fit(strings.Join(names, ","), max(12, w-75)) + " " + mutedStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
 		content = append(content, fit(line, w))
 	}
-	footer := mutedStyle.Render(fmt.Sprintf("ACTORS %d  ·  ↑↓ / j k scroll  PgUp/PgDn page  Esc back", len(rows)))
+	footer := mutedStyle.Render(fmt.Sprintf("ACTORS %d  ·  ↑↓ / j k scroll  PgUp/PgDn page  r refresh  Esc back", len(rows)))
 	return lipgloss.JoinVertical(lipgloss.Left, head, title, strings.Join(content, "\n"), footer)
 }
 
