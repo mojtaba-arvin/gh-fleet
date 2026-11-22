@@ -579,9 +579,9 @@ type model struct {
 	width, height       int
 	cursor, runCursor   int
 	commitScroll        int
-	workloadScroll         int
+	workloadScroll      int
 	commitPeriod        int
-	agentWorkloadMode        bool
+	agentWorkloadMode   bool
 	runScroll           int
 	logOffset           int
 	focus               int // repositories, activity, Actions
@@ -876,7 +876,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "c" {
 			m.agentWorkloadMode = true
 			m.workloadScroll = 0
-			
+
 			return m, nil
 		}
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
