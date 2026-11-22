@@ -397,3 +397,21 @@ func TestGitHubOnlyOverviewDoesNotShowAgentTaskCounts(t *testing.T) {
 		t.Fatalf("GitHub-only view unexpectedly displays agent task count:\n%s", view)
 	}
 }
+
+
+func TestReadAgentSpoolRejectsPermissiveParentDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix directory permission semantics are tested on Unix")
+	}
+	parent := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(parent, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "agent-events.jsonl")
+	if err := os.WriteFile(path, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readAgentSpool(path, agentSpoolCursor{}); err == nil || !strings.Contains(err.Error(), "parent directory") {
+		t.Fatalf("permissive parent directory error = %v", err)
+	}
+}
