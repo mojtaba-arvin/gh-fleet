@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -1775,6 +1776,10 @@ func (m model) renderCommitChart(w, h int) []string {
 			name = repo.FullName
 		}
 		meta := fmt.Sprintf("◈ %s   %d commits   peak %d/h", name, total, peak)
+		trend := ntSparkline.New(12, 1, ntSparkline.WithMaxValue(float64(scaleMax)), ntSparkline.WithNoAutoMaxValue(), ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)))
+		trend.PushAll(intsToFloats(values))
+		trend.DrawColumnsOnly()
+		meta += "  " + strings.TrimSpace(trend.View())
 		if repo.CommitsFetched.IsZero() {
 			meta += "   · syncing history"
 		}
@@ -2154,6 +2159,11 @@ func (m model) helpView() string {
 }
 
 func main() {
+	if version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			version = info.Main.Version
+		}
+	}
 	cacheFlag := flag.String("cache", "", "cache file path (default: user cache directory)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
