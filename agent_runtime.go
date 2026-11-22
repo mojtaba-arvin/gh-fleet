@@ -21,18 +21,18 @@ import (
 )
 
 const (
-	maxAgentSpoolBytes        = 4 << 20
-	maxAgentEventLineBytes    = 16 << 10
-	maxAgentSummaryBytes      = 240
-	maxAgentTasks             = 1000
-	maxAgentSeenEventIDs      = 20000
-	maxAgentEventAge          = 30 * 24 * time.Hour
-	agentTerminalRetention    = 24 * time.Hour
-	agentDefaultHeartbeat     = 30 * time.Second
-	agentMinimumStaleGrace    = 60 * time.Second
-	agentMinimumHeartbeatSec  = 5
-	agentMaximumHeartbeatSec  = 3600
-	agentPollInterval         = 5 * time.Second
+	maxAgentSpoolBytes       = 4 << 20
+	maxAgentEventLineBytes   = 16 << 10
+	maxAgentSummaryBytes     = 240
+	maxAgentTasks            = 1000
+	maxAgentSeenEventIDs     = 20000
+	maxAgentEventAge         = 30 * 24 * time.Hour
+	agentTerminalRetention   = 24 * time.Hour
+	agentDefaultHeartbeat    = 30 * time.Second
+	agentMinimumStaleGrace   = 60 * time.Second
+	agentMinimumHeartbeatSec = 5
+	agentMaximumHeartbeatSec = 3600
+	agentPollInterval        = 5 * time.Second
 )
 
 var (
@@ -524,9 +524,9 @@ func collectAgentAttentionItems(tasks map[string]agentTask, now time.Time) []att
 			continue
 		}
 		item := attentionItem{
-			Repo: task.Repository,
+			Repo:    task.Repository,
 			Subject: fmt.Sprintf("Agent %s · task %s", task.AgentID, task.TaskID),
-			Age: age,
+			Age:     age,
 		}
 		switch {
 		case task.State == "failed":
