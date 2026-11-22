@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -660,7 +661,7 @@ type model struct {
 	agentWorkloadMode   bool
 	runScroll           int
 	logOffset           int
-	focus               int // repositories, activity, Actions
+	focus               int // overview, repositories, CI queue
 	detail              bool
 	filter              string
 	filtering           bool
@@ -990,7 +991,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.focus {
 			case 0:
 				if item := m.selectedAttention(); item != nil && item.URL != "" {
-					_ = exec.Command("open", item.URL).Start()
+					_ = openURL(item.URL)
 				}
 			case 1:
 				if len(m.visibleRepos()) > 0 {
@@ -1061,15 +1062,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.focus {
 			case 0:
 				if item := m.selectedAttention(); item != nil && item.URL != "" {
-					_ = exec.Command("open", item.URL).Start()
+					_ = openURL(item.URL)
 				}
 			case 1:
 				if r := m.selectedRepo(); r != nil {
-					_ = exec.Command("open", r.URL).Start()
+					_ = openURL(r.URL)
 				}
 			case 2:
 				if r := m.selectedRun(); r != nil {
-					_ = exec.Command("open", r.item.URL).Start()
+					_ = openURL(r.item.URL)
 				}
 			}
 		case "l":
@@ -1618,6 +1619,23 @@ var (
 	selectStyle = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
 )
 
+func openURL(raw string) error {
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return fmt.Errorf("invalid browser URL")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", raw)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", raw)
+	default:
+		cmd = exec.Command("xdg-open", raw)
+	}
+	return cmd.Start()
+}
+
 func width(s string) int { return lipgloss.Width(s) }
 func fit(s string, n int) string {
 	if n <= 0 {
@@ -1972,16 +1990,22 @@ func (m model) overviewView() string {
 	footer := m.renderFooter(w)
 	contentH := max(5, h-7)
 	if w >= 108 && h >= 17 {
+		bodyH := max(5, h-6)
 		gap := 1
 		leftW := int(float64(w) * 0.61)
 		rightW := w - leftW - gap
-		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, contentH-2), leftW, contentH, true)
-		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, contentH-2), rightW, contentH, false)
+		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, true)
+		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, false)
 		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", body, footer)
 	}
-	attentionH := max(4, min(contentH-3, contentH*2/3))
-	waitH := max(3, contentH-attentionH-1)
+	bodyH := max(3, h-6)
+	if bodyH < 7 {
+		attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, true)
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", attention, footer)
+	}
+	attentionH := max(3, (bodyH-1)*2/3)
+	waitH := bodyH - attentionH - 1
 	attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, true)
 	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, false)
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", attention, waiting, footer)
@@ -2031,7 +2055,7 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		}
 		state := repoPortfolioState(*repo, time.Now())
 		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
-			ciStyle(state).Render(fit(state, statusW)) + " " +
+			repoStateStyle(state).Render(fit(state, statusW)) + " " +
 			mutedStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
 			mutedStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
 			mutedStyle.Render(fit(lastPush, 10)) + " " +
@@ -2387,6 +2411,19 @@ func ciStyle(state string) lipgloss.Style {
 		return badStyle
 	case strings.Contains(state, "OK"):
 		return goodStyle
+	default:
+		return mutedStyle
+	}
+}
+
+func repoStateStyle(state string) lipgloss.Style {
+	switch state {
+	case "ATTENTION":
+		return badStyle
+	case "CI RUNNING", "OPEN PRs":
+		return activeStyle
+	case "CI QUEUED", "IN REVIEW":
+		return branchStyle
 	default:
 		return mutedStyle
 	}
