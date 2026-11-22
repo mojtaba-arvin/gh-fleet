@@ -846,31 +846,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc", "backspace", "c":
 				m.agentWorkloadMode = false
 			case "r":
+				var cmds []tea.Cmd
 				if !m.busyCommitHistory && len(m.repos) > 0 {
 					m.busyCommitHistory = true
-					return m, fetchCommitHistoryCmd(m.api, m.repos)
+					cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 				}
-			case "1":
-				m.commitPeriod = 24
-				m.workloadScroll = 0
-			case "2":
-				
-				m.workloadScroll = 0
-			case "3":
-				m.commitPeriod = 365
-				m.workloadScroll = 0
+				if !m.busyBranchHistory && len(m.repos) > 0 {
+					m.busyBranchHistory = true
+					cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
+				}
+				if len(cmds) > 0 {
+					return m, tea.Batch(cmds...)
+				}
 			case "up", "k":
 				m.workloadScroll = max(0, m.workloadScroll-1)
 			case "down", "j":
-				m.workloadScroll = min(max(0, len(m.chartRepos())-1), m.workloadScroll+1)
+				m.workloadScroll = min(max(0, len(collectAgentWorkload(m.repos, time.Now()))-1), m.workloadScroll+1)
 			case "pgup":
 				m.workloadScroll = max(0, m.workloadScroll-3)
 			case "pgdown":
-				m.workloadScroll = min(max(0, len(m.chartRepos())-1), m.workloadScroll+3)
+				m.workloadScroll = min(max(0, len(collectAgentWorkload(m.repos, time.Now()))-1), m.workloadScroll+3)
 			case "home", "g":
 				m.workloadScroll = 0
 			case "end", "G":
-				m.workloadScroll = max(0, len(m.chartRepos())-1)
+				m.workloadScroll = max(0, len(collectAgentWorkload(m.repos, time.Now()))-1)
 			}
 			return m, nil
 		}
