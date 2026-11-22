@@ -1048,7 +1048,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchReposCmd(m.api))
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
-			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= allRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
@@ -2051,14 +2051,11 @@ func compactCI(r run) string {
 }
 func stateStyle(r run) lipgloss.Style {
 	switch runState(r) {
-	case "success":
-		return goodStyle
-	case "failure", "startup_failure", "action_required":
-		return badStyle
-	case "in_progress", "queued", "waiting", "requested", "pending":
-		return activeStyle
-	default:
-		return mutedStyle
+	case "success": return goodStyle
+	case "failure", "startup_failure", "action_required": return badStyle
+	case "in_progress": return activeStyle
+	case "queued", "waiting", "requested", "pending": return branchStyle
+	default: return mutedStyle
 	}
 }
 func (m model) renderFooter(w int) string {
