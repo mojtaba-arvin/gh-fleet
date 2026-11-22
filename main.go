@@ -46,23 +46,28 @@ type branch struct {
 }
 
 type commitInfo struct {
-	SHA    string `json:"sha"`
-	Date   string `json:"date"`
-	Msg    string `json:"message"`
+	SHA string `json:"sha"`
+	Date string `json:"date"`
+	Msg string `json:"message"`
 	Author string `json:"author"`
+	AuthorLogin string `json:"author_login,omitempty"`
 }
 
 type run struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	Title      string `json:"display_title"`
-	Branch     string `json:"head_branch"`
-	SHA        string `json:"head_sha"`
-	Status     string `json:"status"`
+	ID int64 `json:"id"`
+	Name string `json:"name"`
+	Title string `json:"display_title"`
+	Branch string `json:"head_branch"`
+	SHA string `json:"head_sha"`
+	Status string `json:"status"`
 	Conclusion string `json:"conclusion"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
-	URL        string `json:"html_url"`
+	Event string `json:"event"`
+	RunNumber int `json:"run_number"`
+	CreatedAt string `json:"created_at"`
+	StartedAt string `json:"run_started_at"`
+	UpdatedAt string `json:"updated_at"`
+	Actor struct { Login string `json:"login"` } `json:"actor"`
+	URL string `json:"html_url"`
 }
 
 type repository struct {
@@ -396,7 +401,7 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 	if repo.Default == "" {
 		return nil, nil
 	}
-	since := time.Now().Add(-365 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	var commits []commitInfo
 	for page := 1; ; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/commits?sha=%s&since=%s&per_page=100&page=%d",
@@ -421,6 +426,9 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 					Name string `json:"name"`
 				} `json:"author"`
 			} `json:"commit"`
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
 		}
 		err = json.NewDecoder(resp.Body).Decode(&data)
 		resp.Body.Close()
@@ -430,7 +438,8 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, repo repository) ([]
 		for _, item := range data {
 			commits = append(commits, commitInfo{
 				SHA: item.SHA, Date: item.Commit.Committer.Date,
-				Msg: strings.SplitN(item.Commit.Message, "\n", 2)[0], Author: item.Commit.Author.Name,
+				Msg: strings.SplitN(item.Commit.Message, "\n", 2)[0],
+				Author: item.Commit.Author.Name, AuthorLogin: item.Author.Login,
 			})
 		}
 		if len(data) < 100 {
@@ -453,7 +462,7 @@ func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
 		sem := make(chan struct{}, 4)
 		var wg sync.WaitGroup
 		var mu sync.Mutex
-		cutoff := time.Now().Add(-365 * 24 * time.Hour)
+		cutoff := time.Now().Add(-30 * 24 * time.Hour)
 		var activeRepos []repository
 		for _, repo := range repos {
 			pushedAt := parseTime(repo.PushedAt)
@@ -686,7 +695,7 @@ func newModel(client *apiClient, cachePath string) model {
 	var refsAt, runsAt, commitsAt time.Time
 	needsYearHistory := false
 	for _, r := range c.Repos {
-		if r.CommitHistoryDays < 365 {
+		if r.CommitHistoryDays < 7 {
 			needsYearHistory = true
 		}
 		if r.CommitsFetched.After(commitsAt) {
@@ -798,9 +807,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "c" {
 			m.commitCharts = true
 			m.chartScroll = 0
-			if m.commitPeriod != 7 && m.commitPeriod != 365 {
-				m.commitPeriod = 365
-			}
+			m.commitPeriod = 7
 			return m, nil
 		}
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
@@ -1011,7 +1018,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for name, items := range msg.commits {
 			if r := m.repoByName(name); r != nil {
 				r.Commits = items
-				r.CommitHistoryDays = 365
+				r.CommitHistoryDays = 7
 				r.CommitsFetched = time.Now()
 			}
 		}
