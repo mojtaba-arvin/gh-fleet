@@ -2068,7 +2068,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 			rows = append(rows, fit(line, w))
 			if len(rows) < h {
 				detail := item.Subject + " → " + item.Next
-				if i == m.attentionCursor {
+				if i == m.attentionCursor && m.overviewPane == 0 {
 					rows = append(rows, selectStyle.Width(w).Render(fit(detail, w)))
 				} else {
 					rows = append(rows, fit(detail, w))
@@ -2113,7 +2113,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 			mutedStyle.Render(fit(item.Subject, subjectWidth)) + " " +
 			mutedStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
 			mutedStyle.Render(fit(item.Next, nextWidth))
-		if i == m.attentionCursor {
+		if i == m.attentionCursor && m.overviewPane == 0 {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
 		rows = append(rows, fit(line, w))
@@ -2190,7 +2190,7 @@ func (m model) renderInFlightRows(w, h int) []string {
 	}
 	selected := max(0, min(m.inFlightCursor, len(items)-1))
 	if len(items) == 0 {
-		message := "No active CI, requested reviews, or reported Agent tasks."
+		message := "No active workflows or explicitly requested reviews."
 		rows := []string{mutedStyle.Render(fit(message, w))}
 		for len(rows) < h {
 			rows = append(rows, "")
@@ -2208,7 +2208,7 @@ func (m model) renderInFlightRows(w, h int) []string {
 				label += " · " + item.Detail
 			}
 			line := fit(label, w)
-			if i == selected {
+			if i == selected && m.overviewPane == 1 {
 				line = selectStyle.Width(w).Render(line)
 			}
 			rows = append(rows, line)
@@ -2239,7 +2239,7 @@ func (m model) renderInFlightRows(w, h int) []string {
 			line += mutedStyle.Render(" · " + item.Detail)
 		}
 		line = fit(line, w)
-		if i == selected {
+		if i == selected && m.overviewPane == 1 {
 			line = selectStyle.Width(w).Render(line)
 		}
 		rows = append(rows, line)
