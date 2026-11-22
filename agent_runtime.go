@@ -334,6 +334,9 @@ func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenO
 		return errors.New("task must begin with agent.started")
 	}
 	if exists {
+		if isAgentTerminal(task.State) {
+			return errors.New("terminal task cannot be changed; use a new task_id for retries")
+		}
 		if err := validateAgentTransition(task, event.EventType, event.State); err != nil {
 			return err
 		}
@@ -505,6 +508,9 @@ func collectAgentAttentionItems(tasks map[string]agentTask, now time.Time) []att
 		age := time.Duration(0)
 		if !task.LastSignalAt.IsZero() && now.After(task.LastSignalAt) {
 			age = now.Sub(task.LastSignalAt)
+		}
+		if task.State == "failed" && age > agentTerminalRetention {
+			continue
 		}
 		item := attentionItem{
 			Repo: task.Repository,
