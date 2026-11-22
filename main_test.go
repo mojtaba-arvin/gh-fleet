@@ -41,7 +41,9 @@ func TestNarrowDashboardShowsOperationalRepositoryWorkload(t *testing.T) {
 				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339), AuthorLogin: "agent-one"},
 				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339), AuthorLogin: "agent-one"},
 			},
-			Runs: []run{{Status: "in_progress", Actor: struct { Login string `json:"login"` }{Login: "agent-two"}}},
+			Runs: []run{{Status: "in_progress", Actor: struct {
+				Login string `json:"login"`
+			}{Login: "agent-two"}}},
 		}},
 	}
 	view := m.narrowView()
@@ -143,7 +145,6 @@ func TestScaledBarUnitsPreserveSmallNonZeroActivity(t *testing.T) {
 	}
 }
 
-
 func TestRepoWorkloadCountsUniqueCommitsAndAttributesActors(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	repo := repository{
@@ -154,7 +155,9 @@ func TestRepoWorkloadCountsUniqueCommitsAndAttributesActors(t *testing.T) {
 			{SHA: "b", Date: "2026-11-20T11:00:00Z", AuthorLogin: "agent-b"},
 			{SHA: "old", Date: "2026-11-10T11:00:00Z", AuthorLogin: "old-agent"},
 		},
-		Runs: []run{{Status: "in_progress", Actor: struct { Login string `json:"login"` }{Login: "ci-actor"}}},
+		Runs: []run{{Status: "in_progress", Actor: struct {
+			Login string `json:"login"`
+		}{Login: "ci-actor"}}},
 	}
 	got := repoWorkload(repo, now)
 	if got.Commits24h != 1 || got.Commits7d != 2 {
@@ -188,7 +191,9 @@ func TestVisibleRunsShowsOperationalQueueAndRecentFailuresOnly(t *testing.T) {
 		{ID: 4, Status: "completed", Conclusion: "failure", UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)},
 	}}}}
 	got := m.visibleRuns()
-	if len(got) != 3 { t.Fatalf("visible runs = %d, want 3", len(got)) }
+	if len(got) != 3 {
+		t.Fatalf("visible runs = %d, want 3", len(got))
+	}
 	if got[0].item.ID != 3 || got[1].item.ID != 2 || got[2].item.ID != 4 {
 		t.Fatalf("operational queue order = %d, %d, %d", got[0].item.ID, got[1].item.ID, got[2].item.ID)
 	}
@@ -198,12 +203,18 @@ func TestAgentWorkloadCombinesCommitAndCIAttribution(t *testing.T) {
 	now := time.Now()
 	repos := []repository{{FullName: "acme/one", Name: "one",
 		Commits: []commitInfo{{SHA: "a", Date: now.Add(-time.Hour).Format(time.RFC3339), AuthorLogin: "agent-a"}},
-		Runs: []run{{Status: "in_progress", UpdatedAt: now.Format(time.RFC3339), Actor: struct { Login string `json:"login"` }{Login: "agent-b"}}},
+		Runs: []run{{Status: "in_progress", UpdatedAt: now.Format(time.RFC3339), Actor: struct {
+			Login string `json:"login"`
+		}{Login: "agent-b"}}},
 	}}
 	got := collectAgentWorkload(repos, now)
-	if len(got) != 2 { t.Fatalf("actors = %d, want 2", len(got)) }
+	if len(got) != 2 {
+		t.Fatalf("actors = %d, want 2", len(got))
+	}
 	found := map[string]agentWorkload{}
-	for _, item := range got { found[item.Name] = item }
+	for _, item := range got {
+		found[item.Name] = item
+	}
 	if found["agent-a"].Commits7d != 1 || found["agent-b"].Running != 1 {
 		t.Fatalf("agent workload attribution incorrect: %+v", got)
 	}
