@@ -1,9 +1,58 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width:  100,
+		height: 30,
+		repos: []repository{{
+			FullName:       "acme/active",
+			Name:           "active",
+			Default:        "main",
+			CommitsFetched: now,
+			Commits: []commitInfo{
+				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
+				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339)},
+			},
+		}},
+	}
+	view := strings.Join(m.renderCommitChart(90, 12), "\n")
+	for _, want := range []string{"active", "2 commits", "peak 1", "now", "█"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("default dashboard chart does not contain %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestNarrowDefaultDashboardShowsCommitChartsImmediately(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{
+		width:  80,
+		height: 30,
+		repos: []repository{{
+			FullName:       "acme/active",
+			Name:           "active",
+			Default:        "main",
+			CommitsFetched: now,
+			Commits: []commitInfo{
+				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
+				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339)},
+			},
+		}},
+	}
+	view := m.narrowView()
+	for _, want := range []string{"OVERVIEW", "2 commits", "REPOSITORIES", "█"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("narrow default dashboard does not contain %q:\n%s", want, view)
+		}
+	}
+}
 
 func TestRunningRunsCountsOnlyInProgress(t *testing.T) {
 	repo := repository{Runs: []run{
