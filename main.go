@@ -1735,10 +1735,11 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 			label string
 		}{{0, "-24h"}, {6, "-18h"}, {12, "-12h"}, {18, "-6h"}, {23, "now"}} {
 			position := tick.index * (slot + gap)
+			if position+len(tick.label) > len(axis) {
+				position = max(0, len(axis)-len(tick.label))
+			}
 			for offset, char := range tick.label {
-				if position+offset < len(axis) {
-					axis[position+offset] = char
-				}
+				axis[position+offset] = char
 			}
 		}
 		labels.WriteString(string(axis))
