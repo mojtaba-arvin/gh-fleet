@@ -1710,15 +1710,7 @@ func (m model) renderMetrics(w int) string {
 		metric("ACTIVE REPOS", strconv.Itoa(active), "activity or CI · 7d", purple, cw),
 		metric("COMMITS · 30D", countFmt(commits30d), fmt.Sprintf("%d/%d repos covered", coverage, repoCount), blue, cw),
 		metric("CONTRIBUTORS", countFmt(len(contributors)), "unique commit authors · 30d", cyan, cw),
-		metric("CI · RUN / WAIT", fmt.Sprintf("%d / %d", running, waiting), fmt.Sprintf("%d failures · 24h", failed), func() lipgloss.Color {
-			if failed > 0 {
-				return red
-			}
-			if running > 0 || waiting > 0 {
-				return yellow
-			}
-			return green
-		}(), cw),
+		metric("CI · RUN / WAIT", fmt.Sprintf("%d / %d", running, waiting), fmt.Sprintf("%d failures · 24h", failed), ciColor, cw),
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithSpaces(items, 1)...)
 }
