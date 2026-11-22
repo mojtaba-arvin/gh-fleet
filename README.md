@@ -68,7 +68,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 ## Refresh and network behavior
 
 - The account snapshot and default-branch commit history refresh every 3 minutes.
-- Commit-volume history queries the latest 100 commits per default branch within the previous 7 days, with at most four concurrent repository requests. The 24-hour chart buckets those commits hourly; the 7-day chart buckets them by day.
+- Commit-volume history queries the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The 24-hour chart buckets those commits hourly; the 7-day chart buckets them by day.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
