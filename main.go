@@ -777,7 +777,7 @@ func newModel(client *apiClient, cachePath string) model {
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
-		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt}
+		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt, lastBranchHistory: refsAt}
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(fetchReposCmd(m.api), tickCmd()) }
@@ -1022,6 +1022,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if v, ok := old[msg.repos[i].FullName]; ok {
 					msg.repos[i].Runs = v.Runs
 					msg.repos[i].Fetched = v.Fetched
+					msg.repos[i].Branches = v.Branches
+					msg.repos[i].BranchesFetched = v.BranchesFetched
 					msg.repos[i].Commits = v.Commits
 					msg.repos[i].CommitHistoryDays = v.CommitHistoryDays
 					msg.repos[i].CommitsFetched = v.CommitsFetched
@@ -1040,6 +1042,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			cmds = append(cmds, m.drainRunQueue()...)
+			needsBranchHistory := false
+			for _, repo := range m.repos {
+				if repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= refsRefreshInterval {
+					needsBranchHistory = true
+					break
+				}
+			}
+			if needsBranchHistory && !m.busyBranchHistory {
+				m.busyBranchHistory = true
+				cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
+			}
 			if len(cmds) > 0 {
 				return m, tea.Batch(cmds...)
 			}
@@ -1075,6 +1088,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.BranchesFetched = time.Now()
 			saveCache(m)
 		}
+	case branchHistoryMsg:
+		now := time.Now()
+		for name, message := range msg.errors {
+			m.lastErr = name + ": " + message
+		}
+		for name, items := range msg.branches {
+			if r := m.repoByName(name); r != nil {
+				r.Branches = items
+				r.BranchN = max(r.BranchN, len(items))
+				r.BranchesFetched = now
+			}
+		}
+		for name := range msg.skipped {
+			if r := m.repoByName(name); r != nil {
+				r.BranchesFetched = now
+			}
+		}
+		m.lastBranchHistory = now
+		m.busyBranchHistory = false
+		saveCache(m)
 	case commitHistoryMsg:
 		for name, message := range msg.errors {
 			m.lastErr = name + ": " + message
@@ -1115,6 +1148,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= allRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
+		}
+		if !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
+			(m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) {
+			m.busyBranchHistory = true
+			cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
 		}
 		for _, r := range m.repos {
 			interval := allRefreshInterval
