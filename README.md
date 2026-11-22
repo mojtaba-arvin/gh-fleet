@@ -20,7 +20,7 @@ See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the 
 
 ## What the dashboard can and cannot know
 
-The dashboard can run in GitHub-only mode or with an optional local agent event source. Without a configured and readable event spool, the header reports **Agent runtime: NOT CONNECTED**. With a source configured, only runner-reported lifecycle events establish task state. GitHub provides repository, pull-request, review, and Actions facts, but it does not reveal whether an external coding agent is actively working, blocked on a user, or finished. A workflow trigger actor is not necessarily the agent that created the code. A commit author is not proof of a human or agent identity.
+The dashboard can run in GitHub-only mode or with an optional local agent event source. Without a configured event spool, the standard GitHub-only dashboard stays focused on GitHub work and does not display a permanent warning for an unused optional source. When a source is configured, its actual connection state is shown; only runner-reported lifecycle events establish task state. GitHub provides repository, pull-request, review, and Actions facts, but it does not reveal whether an external coding agent is actively working, blocked on a user, or finished. A workflow trigger actor is not necessarily the agent that created the code. A commit author is not proof of a human or agent identity.
 
 True agent lifecycle state requires explicit events from the agent runner/orchestrator. The target event contract and privacy boundaries are documented in [Agent telemetry](docs/AGENT_TELEMETRY.md). gh-fleet does not synthesize agent states from GitHub usernames or workflow activity.
 
@@ -61,11 +61,14 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 | Key | Action |
 | --- | --- |
 | Tab / Shift+Tab | Switch between Overview, Repositories, and CI queue |
-| ↑ / ↓, j / k | Move through attention items, repositories, or workflow runs |
-| Enter on an attention item | Open its GitHub PR or workflow page |
+| 1 / 2 / 3 | Jump directly to Overview, Repositories, or CI queue |
+| ↑ / ↓, j / k | Move through the focused list |
+| ← / → on Overview | Switch focus between Needs attention and In flight / waiting |
+| Enter on an Overview item | Open its GitHub PR or workflow page |
+| l on a workflow item | Open live workflow logs |
 | Enter on a repository | Open repository detail; use ↑ / ↓ to select a PR |
 | Enter on a selected PR in repository detail | Open the PR; Esc returns to the repository list |
-| Enter on a CI run, or l | Open live workflow logs |
+| Enter on a CI run | Open live workflow logs |
 | a | Open the optional GitHub identity diagnostic (not agent identity) |
 | Esc | Return from repository or log detail |
 | / | Filter repositories |
