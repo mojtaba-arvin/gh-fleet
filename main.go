@@ -30,6 +30,7 @@ const (
 	graphQLURL          = "https://api.github.com/graphql"
 	allRefreshInterval  = 60 * time.Second
 	refsRefreshInterval = 180 * time.Second
+	activityRefreshInterval = 5 * time.Minute
 	selectedInterval    = 20 * time.Second
 	logRefreshInterval  = 15 * time.Second
 	maxLogBytes         = 2 << 20
@@ -922,7 +923,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							delete(m.queuedRuns, r.FullName)
 						}
 						m.queueRun(r.FullName, true)
-						if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= selectedInterval) && !m.busyBranches[r.FullName] {
+						if (len(r.Branches) < r.BranchN || time.Since(r.BranchesFetched) >= activityRefreshInterval) && !m.busyBranches[r.FullName] {
 							m.busyBranches[r.FullName] = true
 							cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
 						}
@@ -1060,7 +1061,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.drainRunQueue()...)
 			needsBranchHistory := false
 			for _, repo := range m.repos {
-				if repo.BranchHistoryDays < activityHistoryDays || repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= refsRefreshInterval {
+				if repo.BranchHistoryDays < activityHistoryDays || repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= activityRefreshInterval {
 					needsBranchHistory = true
 					break
 				}
@@ -1169,7 +1170,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchReposCmd(m.api))
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyCommitHistory &&
-			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= refsRefreshInterval) {
+			(m.lastCommitHistory.IsZero() || now.Sub(m.lastCommitHistory) >= activityRefreshInterval) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
@@ -1181,7 +1182,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
-			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) &&
+			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= activityRefreshInterval) &&
 			!now.Before(m.retryAt["branch-history"]) {
 			m.busyBranchHistory = true
 			cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
@@ -1199,7 +1200,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.queueRun(r.FullName, selected)
 			}
 			branchKey := "branches:" + r.FullName
-			if selected && !m.busyBranches[r.FullName] && (r.BranchesFetched.IsZero() || now.Sub(r.BranchesFetched) >= selectedInterval) && !now.Before(m.retryAt[branchKey]) {
+			if selected && !m.busyBranches[r.FullName] && (r.BranchesFetched.IsZero() || now.Sub(r.BranchesFetched) >= activityRefreshInterval) && !now.Before(m.retryAt[branchKey]) {
 				m.busyBranches[r.FullName] = true
 				cmds = append(cmds, fetchAllBranchesCmd(m.api, r.FullName))
 			}
