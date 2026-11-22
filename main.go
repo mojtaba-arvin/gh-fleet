@@ -1847,7 +1847,7 @@ func intsToFloats(values []int) []float64 {
 func (m model) commitChartsView() string {
 	w, h := m.width, m.height
 	if w < 70 || h < 16 {
-		return "Commit charts need a terminal at least 70 columns wide and 16 rows high.\\nPress Esc to return."
+		return "Commit charts need a terminal at least 70 columns wide and 16 rows high.\nPress Esc to return."
 	}
 	now := time.Now().UTC()
 	period := m.commitPeriod
