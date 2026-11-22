@@ -331,9 +331,9 @@ func (c *apiClient) fetchRuns(ctx context.Context, fullName string) ([]run, erro
 }
 
 func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) ([]branch, string, error) {
-	query := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp!){repository(owner:$owner,name:$name){refs(refPrefix:"refs/heads/",first:100,after:$after){nodes{name target{...on Commit{oid committedDate messageHeadline history(first:3,since:$since){nodes{oid committedDate messageHeadline author{name}}}}}}pageInfo{hasNextPage endCursor}}}}`
+	query := `query($owner:String!,$name:String!,$after:String,$since:GitTimestamp!){repository(owner:$owner,name:$name){refs(refPrefix:"refs/heads/",first:100,after:$after){nodes{name target{...on Commit{oid committedDate messageHeadline history(first:10,since:$since){nodes{oid committedDate messageHeadline author{name user{login}}}}}}}pageInfo{hasNextPage endCursor}}}}`
 	parts := strings.SplitN(fullName, "/", 2)
-	since := time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	payload, _ := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"owner": parts[0], "name": parts[1], "after": nullable(after), "since": since}})
 	resp, err := c.request(ctx, http.MethodPost, graphQLURL, bytes.NewReader(payload), "")
 	if err != nil {
@@ -359,8 +359,11 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 									OID     string `json:"oid"`
 									Date    string `json:"committedDate"`
 									Message string `json:"messageHeadline"`
-									Author  struct {
+									Author struct {
 										Name string `json:"name"`
+										User struct {
+											Login string `json:"login"`
+										} `json:"user"`
 									} `json:"author"`
 								} `json:"nodes"`
 							} `json:"history"`
@@ -389,7 +392,7 @@ func (c *apiClient) fetchBranches(ctx context.Context, fullName, after string) (
 	for _, n := range data.Data.Repository.Refs.Nodes {
 		br := branch{Name: n.Name, SHA: n.Target.OID, Date: n.Target.Date, Msg: n.Target.Message}
 		for _, c := range n.Target.History.Nodes {
-			br.History = append(br.History, commitInfo{SHA: c.OID, Date: c.Date, Msg: c.Message, Author: c.Author.Name})
+			br.History = append(br.History, commitInfo{SHA: c.OID, Date: c.Date, Msg: c.Message, Author: c.Author.Name, AuthorLogin: c.Author.User.Login})
 		}
 		result = append(result, br)
 	}
