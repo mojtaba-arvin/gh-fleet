@@ -394,11 +394,13 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, fullName string) ([]
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid repository name %q", fullName)
 	}
-	query := `query($owner:String!,$name:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){defaultBranchRef{target{...on Commit{history(first:100,since:$since){nodes{oid committedDate messageHeadline author{name}}}}}}}}`
+	query := "query($owner:String!,$name:String!,$since:GitTimestamp!){repository(owner:$owner,name:$name){defaultBranchRef{target{...on Commit{history(first:100,since:$since){nodes{oid committedDate messageHeadline author{name}}}}}}}}"
 	since := time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	payload, _ := json.Marshal(map[string]any{"query": query, "variables": map[string]any{"owner": parts[0], "name": parts[1], "since": since}})
 	resp, err := c.request(ctx, http.MethodPost, graphQLURL, bytes.NewReader(payload), "")
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err = responseError(resp)
 		resp.Body.Close()
@@ -411,33 +413,43 @@ func (c *apiClient) fetchCommitHistory(ctx context.Context, fullName string) ([]
 					Target *struct {
 						History struct {
 							Nodes []struct {
-								OID string `json:"oid"`
-								Date string `json:"committedDate"`
+								OID     string `json:"oid"`
+								Date    string `json:"committedDate"`
 								Message string `json:"messageHeadline"`
-								Author struct { Name string `json:"name"` } `json:"author"`
+								Author  struct {
+									Name string `json:"name"`
+								} `json:"author"`
 							} `json:"nodes"`
 						} `json:"history"`
 					} `json:"target"`
 				} `json:"defaultBranchRef"`
 			} `json:"repository"`
 		} `json:"data"`
-		Errors []struct { Message string `json:"message"` } `json:"errors"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
 	resp.Body.Close()
-	if err != nil { return nil, fmt.Errorf("decode commit history for %s: %w", fullName, err) }
-	if len(data.Errors) > 0 { return nil, errors.New(data.Errors[0].Message) }
+	if err != nil {
+		return nil, fmt.Errorf("decode commit history for %s: %w", fullName, err)
+	}
+	if len(data.Errors) > 0 {
+		return nil, errors.New(data.Errors[0].Message)
+	}
 	var commits []commitInfo
-	if data.Data.Repository == nil || data.Data.Repository.Default == nil || data.Data.Repository.Default.Target == nil { return commits, nil }
+	if data.Data.Repository == nil || data.Data.Repository.Default == nil || data.Data.Repository.Default.Target == nil {
+		return commits, nil
+	}
 	for _, item := range data.Data.Repository.Default.Target.History.Nodes {
-		commits = append(commits, commitInfo{SHA:item.OID, Date:item.Date, Msg:item.Message, Author:item.Author.Name})
+		commits = append(commits, commitInfo{SHA: item.OID, Date: item.Date, Msg: item.Message, Author: item.Author.Name})
 	}
 	return commits, nil
 }
 
 type commitHistoryMsg struct {
 	commits map[string][]commitInfo
-	errors map[string]string
+	errors  map[string]string
 }
 
 func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
@@ -456,14 +468,19 @@ func fetchCommitHistoryCmd(c *apiClient, repos []repository) tea.Cmd {
 				select {
 				case sem <- struct{}{}:
 				case <-ctx.Done():
-					mu.Lock(); msg.errors[name] = ctx.Err().Error(); mu.Unlock()
+					mu.Lock()
+					msg.errors[name] = ctx.Err().Error()
+					mu.Unlock()
 					return
 				}
-				defer func(){ <-sem }()
+				defer func() { <-sem }()
 				items, err := c.fetchCommitHistory(ctx, name)
 				mu.Lock()
 				defer mu.Unlock()
-				if err != nil { msg.errors[name] = err.Error(); return }
+				if err != nil {
+					msg.errors[name] = err.Error()
+					return
+				}
 				msg.commits[name] = items
 			}()
 		}
@@ -1554,16 +1571,26 @@ func commitCounts(repos []repository, now time.Time) ([]int, []int) {
 	for _, repo := range repos {
 		for _, item := range repo.Commits {
 			t, err := time.Parse(time.RFC3339, item.Date)
-			if err != nil || t.After(now) || now.Sub(t) >= 7*24*time.Hour { continue }
+			if err != nil || t.After(now) || now.Sub(t) >= 7*24*time.Hour {
+				continue
+			}
 			key := repo.FullName + ":" + item.SHA
-			if item.SHA == "" { key = repo.FullName + ":" + item.Date + ":" + item.Msg }
-			if seen[key] { continue }
+			if item.SHA == "" {
+				key = repo.FullName + ":" + item.Date + ":" + item.Msg
+			}
+			if seen[key] {
+				continue
+			}
 			seen[key] = true
-			day := int(now.Truncate(24*time.Hour).Sub(t.Truncate(24*time.Hour)) / (24*time.Hour))
-			if day >= 0 && day < 7 { daily[6-day]++ }
+			day := int(now.Truncate(24*time.Hour).Sub(t.Truncate(24*time.Hour)) / (24 * time.Hour))
+			if day >= 0 && day < 7 {
+				daily[6-day]++
+			}
 			if now.Sub(t) < 24*time.Hour {
 				hour := int(now.Truncate(time.Hour).Sub(t.Truncate(time.Hour)) / time.Hour)
-				if hour >= 0 && hour < 24 { hourly[23-hour]++ }
+				if hour >= 0 && hour < 24 {
+					hourly[23-hour]++
+				}
 			}
 		}
 	}
@@ -1573,12 +1600,20 @@ func commitCounts(repos []repository, now time.Time) ([]int, []int) {
 func sparkline(values []int) string {
 	levels := []rune("▁▂▃▄▅▆▇█")
 	maxValue := 0
-	for _, value := range values { if value > maxValue { maxValue = value } }
-	if maxValue == 0 { return strings.Repeat("·", len(values)) }
+	for _, value := range values {
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	if maxValue == 0 {
+		return strings.Repeat("·", len(values))
+	}
 	var out strings.Builder
 	for _, value := range values {
-		level := value * (len(levels)-1) / maxValue
-		if value > 0 && level == 0 { level = 1 }
+		level := value * (len(levels) - 1) / maxValue
+		if value > 0 && level == 0 {
+			level = 1
+		}
 		out.WriteRune(levels[level])
 	}
 	return out.String()
@@ -1586,7 +1621,9 @@ func sparkline(values []int) string {
 
 func sumInts(values []int) int {
 	total := 0
-	for _, value := range values { total += value }
+	for _, value := range values {
+		total += value
+	}
 	return total
 }
 
@@ -1603,8 +1640,12 @@ func (m model) renderCommitChart(h int) []string {
 		status += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
 	}
 	content := []string{line24, line7, status}
-	for len(content) < h { content = append(content, "") }
-	if len(content) > h { content = content[:h] }
+	for len(content) < h {
+		content = append(content, "")
+	}
+	if len(content) > h {
+		content = content[:h]
+	}
 	return content
 }
 
