@@ -16,7 +16,7 @@ The default screen is a human-oriented command center. It puts work that may nee
 
 The first screen does not rank repositories or people by commit volume. The optional `a` diagnostic view groups GitHub-observed identities; it does not establish whether an identity is a person, bot, or coding agent.
 
-See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the information architecture, state rules, layout, keyboard model, accessibility, and acceptance criteria. See [UX research and interaction decisions](docs/UX_RESEARCH.md) for the comparative review and rationale behind the keyboard model.
+See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the information architecture, state rules, layout, keyboard model, accessibility, and acceptance criteria. See [UX research and interaction decisions](docs/UX_RESEARCH.md) for the comparative review, keyboard model, semantic colors, and restrained motion policy.
 
 ## What the dashboard can and cannot know
 
@@ -30,7 +30,7 @@ True agent lifecycle state requires explicit events from the agent runner/orches
 - **Evidence before inference:** distinguish GitHub facts, future runner-reported facts, and threshold-based hints.
 - **No productivity leaderboard:** commit, PR, and workflow actor counts are not measures of individual productivity.
 - **Progressive disclosure:** overview first; detailed PRs, CI runs, and logs on demand.
-- **Quiet by default:** no persistent animation or one-second redraw timer.
+- **Quiet by default:** motion appears only during active work; no idle animation or background redraw timer.
 - **Bounded resource use:** bounded concurrency, explicit refresh cadence, cached data during errors, and detailed history loaded only on demand.
 - **Local-first security:** credentials never enter the cache; private repository metadata remains in an owner-only local cache.
 
@@ -55,6 +55,10 @@ Or build from a checkout:
     ./gh-fleet
 
 Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](https://github.com/mojtaba-arvin/gh-fleet/releases) page when a tagged release is available.
+
+## Color, motion, and accessibility
+
+The interface uses semantic colors: green for success, rose for failure, amber for waiting, cyan/blue for focus, and violet for branch context. Critical states always include text or symbols; color is not the only signal. A compact spinner appears only while an operation is active and stops when the UI is idle. Set `GH_FLEET_NO_ANIMATION=1` to disable motion. `TERM=dumb` also disables it, and terminal color preferences including `NO_COLOR` are respected.
 
 ## Controls
 

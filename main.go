@@ -671,6 +671,7 @@ type logMsg struct {
 	err  error
 }
 type tickMsg time.Time
+type animationTickMsg time.Time
 
 type model struct {
 	api                 *apiClient
@@ -724,6 +725,9 @@ type model struct {
 	logBusy             bool
 	lastLog             time.Time
 	showHelp            bool
+	animationFrame      int
+	animationEnabled    bool
+	animationActive     bool
 }
 
 func fetchReposCmd(c *apiClient) tea.Cmd {
@@ -823,6 +827,18 @@ func fetchLogCmd(c *apiClient, repo string, id int64) tea.Cmd {
 		return logMsg{repo, id, text, err}
 	}
 }
+func (m *model) animationCmdIfNeeded() tea.Cmd {
+	if !m.animationEnabled || m.animationActive {
+		return nil
+	}
+	m.animationActive = true
+	return animationCmd()
+}
+
+func animationCmd() tea.Cmd {
+	return tea.Tick(110*time.Millisecond, func(t time.Time) tea.Msg { return animationTickMsg(t) })
+}
+
 func tickCmd(agentTelemetryEnabled bool) tea.Cmd {
 	interval := 15 * time.Second
 	if agentTelemetryEnabled {
@@ -907,7 +923,9 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 		commitsAt = time.Time{}
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
-		agentEventsPath: agentEventsPath, agentTasks: make(map[string]agentTask),
+		animationEnabled: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
+		animationActive:  os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
+		agentEventsPath:  agentEventsPath, agentTasks: make(map[string]agentTask),
 		agentSeenEventIDs: make(map[string]struct{}), busyAgentPoll: agentEventsPath != "",
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
 		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt, lastBranchHistory: branchHistoryAt}
@@ -915,6 +933,9 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
+	if m.animationEnabled {
+		cmds = append(cmds, animationCmd())
+	}
 	if m.agentEventsPath != "" {
 		cmds = append(cmds, agentPollCmd(m.agentEventsPath, m.agentCursor))
 	}
@@ -923,6 +944,12 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case animationTickMsg:
+		m.animationFrame = (m.animationFrame + 1) % 4
+		if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
+			return m, animationCmd()
+		}
+		m.animationActive = false
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
@@ -1125,7 +1152,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.retryAt, "branches:"+r.FullName)
 				m.queueRun(r.FullName, false)
 			}
-			return m, tea.Batch(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...)...)
+			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), m.animationCmdIfNeeded())...)
 		case "/":
 			m.focus = 1
 			m.filtering = true
@@ -1754,17 +1781,18 @@ func commits(repos []repository, scope string) []commitActivity {
 }
 
 var (
-	ink         = lipgloss.Color("#cdd6f4")
-	muted       = lipgloss.Color("#7f849c")
-	panelBorder = lipgloss.Color("#45475a")
-	cyan        = lipgloss.Color("#89dceb")
-	green       = lipgloss.Color("#a6e3a1")
-	red         = lipgloss.Color("#f38ba8")
-	yellow      = lipgloss.Color("#f9e2af")
-	purple      = lipgloss.Color("#cba6f7")
-	blue        = lipgloss.Color("#89b4fa")
-	selectedBG  = lipgloss.Color("#313244")
+	ink         = lipgloss.Color("#e6edf7")
+	muted       = lipgloss.Color("#8793a8")
+	panelBorder = lipgloss.Color("#35445d")
+	cyan        = lipgloss.Color("#67e8f9")
+	green       = lipgloss.Color("#4ade80")
+	red         = lipgloss.Color("#fb7185")
+	yellow      = lipgloss.Color("#fbbf24")
+	purple      = lipgloss.Color("#c4b5fd")
+	blue        = lipgloss.Color("#60a5fa")
+	selectedBG  = lipgloss.Color("#1e3350")
 	titleStyle  = lipgloss.NewStyle().Foreground(cyan).Bold(true)
+	brandStyle  = lipgloss.NewStyle().Foreground(blue).Bold(true)
 	mutedStyle  = lipgloss.NewStyle().Foreground(muted)
 	goodStyle   = lipgloss.NewStyle().Foreground(green)
 	badStyle    = lipgloss.NewStyle().Foreground(red).Bold(true)
@@ -2487,7 +2515,16 @@ func (m model) renderHeader(w int) string {
 	} else if !m.lastRepos.IsZero() {
 		state = "CONNECTED · " + shortAge(m.lastRepos.Format(time.RFC3339)) + " ago"
 	}
+	spinnerFrames := []string{"◐", "◓", "◑", "◒"}
+	spinnerColors := []lipgloss.Color{cyan, blue, purple, cyan}
+	indicator := goodStyle.Render("●")
+	if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
+		indicator = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true).Render(spinnerFrames[m.animationFrame])
+	}
 	status := goodStyle.Render("● " + state)
+	if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
+		status = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true).Render(indicator + " " + state)
+	}
 	if m.lastErr != "" {
 		status = badStyle.Render("● " + state)
 	}
@@ -2501,7 +2538,10 @@ func (m model) renderHeader(w int) string {
 	}
 	if w < 70 {
 		smallState := "● SYNCING"
-		smallStyle := activeStyle
+		if m.animationEnabled {
+			smallState = spinnerFrames[m.animationFrame] + " SYNCING"
+		}
+		smallStyle := lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true)
 		if !m.lastRepos.IsZero() {
 			smallState = "● CONNECTED"
 			smallStyle = goodStyle
@@ -2512,7 +2552,7 @@ func (m model) renderHeader(w int) string {
 		}
 		return fit(titleStyle.Render("GH FLEET")+"  "+smallStyle.Render(smallState), w) + agentLine
 	}
-	brand := titleStyle.Render("GH FLEET  /  DELIVERY OPERATIONS")
+	brand := brandStyle.Render("GH FLEET") + mutedStyle.Render("  /  ") + titleStyle.Render("DELIVERY OPERATIONS")
 	login := mutedStyle.Render("  " + m.login)
 	left := fit(brand+login, max(1, w-width(status)-1))
 	gap := max(1, w-width(left)-width(status))
