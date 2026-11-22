@@ -42,4 +42,4 @@ GitHub may not associate every commit with a user account. When no login is avai
 - The dashboard does not fetch per-commit diffs or file statistics for the overview.
 - Detailed commit/PR information should be loaded only after the operator selects a repository or item.
 
-This is a bounded sampling strategy, not an assertion that every commit on every branch has been retrieved.
+Fleet-wide commit and contributor totals also receive a ~ prefix whenever any included repository is incomplete or sampled. This is a bounded sampling strategy, not an assertion that every commit on every branch has been retrieved.
