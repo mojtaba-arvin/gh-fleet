@@ -68,7 +68,8 @@ type pullRequestSummary struct {
 	MergeStateStatus   string   `json:"merge_state_status"`
 	HeadRefName        string   `json:"head_ref_name"`
 	AuthorLogin        string   `json:"author_login,omitempty"`
-	RequestedReviewers []string `json:"requested_reviewers,omitempty"`
+	RequestedReviewers          []string `json:"requested_reviewers,omitempty"`
+	RequestedReviewersTruncated bool     `json:"requested_reviewers_truncated,omitempty"`
 }
 
 type run struct {
@@ -215,7 +216,7 @@ const repoQuery = `query($after:String) {
                   ... on Bot { login }
                   ... on Mannequin { login }
                   ... on Team { name }
-                  ... on EnterpriseTeam { name }
+                  ... on EnterpriseTeam { combinedSlug }
                 }
               }
               pageInfo { hasNextPage }
@@ -270,9 +271,10 @@ type repoResponse struct {
 							ReviewRequests struct {
 								Nodes []struct {
 									RequestedReviewer struct {
-										Typename string `json:"__typename"`
-										Login    string `json:"login"`
-										Name     string `json:"name"`
+										Typename     string `json:"__typename"`
+										Login        string `json:"login"`
+										Name         string `json:"name"`
+										CombinedSlug string `json:"combinedSlug"`
 									} `json:"requestedReviewer"`
 								} `json:"nodes"`
 								Page struct {
@@ -350,11 +352,15 @@ func (c *apiClient) fetchRepositories(ctx context.Context) (string, []repository
 					Number: p.Number, Title: p.Title, URL: p.URL, IsDraft: p.IsDraft,
 					CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, ReviewDecision: p.ReviewDecision,
 					MergeStateStatus: p.MergeStateStatus, HeadRefName: p.HeadRefName, AuthorLogin: p.Author.Login,
+					RequestedReviewersTruncated: p.ReviewRequests.Page.HasNext,
 				}
 				for _, request := range p.ReviewRequests.Nodes {
 					reviewer := request.RequestedReviewer.Login
 					if reviewer == "" {
 						reviewer = request.RequestedReviewer.Name
+					}
+					if reviewer == "" {
+						reviewer = request.RequestedReviewer.CombinedSlug
 					}
 					if reviewer == "" {
 						reviewer = strings.ToLower(request.RequestedReviewer.Typename)
@@ -1988,6 +1994,9 @@ func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
 				continue
 			}
 			reviewers := strings.Join(pr.RequestedReviewers, ", ")
+			if pr.RequestedReviewersTruncated {
+				reviewers += ", …"
+			}
 			items = append(items, inFlightItem{Priority: 2, Kind: "REVIEW", Repo: repo.FullName, Subject: fmt.Sprintf("PR #%d · %s", pr.Number, pr.Title), Detail: "Waiting on " + reviewers, Age: ageSince(now, pr.UpdatedAt), URL: pr.URL})
 		}
 	}
@@ -2145,7 +2154,11 @@ func pullRequestReviewText(pr pullRequestSummary) string {
 	case pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) == 0:
 		return "REVIEWER NOT REQUESTED"
 	case pr.ReviewDecision == "REVIEW_REQUIRED":
-		return "AWAITING " + strings.Join(pr.RequestedReviewers, ", ")
+		label := "AWAITING " + strings.Join(pr.RequestedReviewers, ", ")
+		if pr.RequestedReviewersTruncated {
+			label += ", …"
+		}
+		return label
 	case pr.ReviewDecision == "APPROVED":
 		return "APPROVED"
 	default:
