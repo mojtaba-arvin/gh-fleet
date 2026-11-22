@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -679,7 +678,7 @@ func newModel(client *apiClient, cachePath string) model {
 			runsAt = r.Fetched
 		}
 	}
-	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
+	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true, focus: 1,
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
 		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt}
 }
@@ -1745,29 +1744,48 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 func (m model) renderCommitChart(w, h int) []string {
 	now := time.Now().UTC()
 	repos := m.chartRepos()
-	content := make([]string, 0, h)
 	if len(repos) == 0 {
-		return []string{mutedStyle.Render("Waiting for repository history…")}
+		message := "Waiting for repository snapshot…"
+		if m.busyRepos {
+			message = "Connecting to GitHub…"
+		}
+		return []string{mutedStyle.Render(message)}
 	}
-	visible := min(len(repos), max(1, h/5))
-	for _, repo := range repos[:visible] {
+
+	// Keep one shared scale across repositories so visual comparisons are honest.
+	scaleMax := 1
+	for _, repo := range repos {
+		scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, 24)))
+	}
+
+	// Each repository gets its own compact histogram, not a tiny sparkline.
+	// The dashboard scroll position is shared with the Activity section controls.
+	cardRows := 5
+	visible := max(1, h/cardRows)
+	maxStart := max(0, len(repos)-visible)
+	start := min(m.commitScroll, maxStart)
+	end := min(len(repos), start+visible)
+	content := make([]string, 0, h)
+
+	for _, repo := range repos[start:end] {
 		values := repoCommitBuckets(*repo, now, 24)
-		name := fit(m.repoLabel(repo), max(8, w-25))
-		meta := fmt.Sprintf("%d commits · peak %d", sumInts(values), maxInt(values))
-		content = append(content, titleStyle.Render(name)+mutedStyle.Render("  "+meta))
-		chart := ntSparkline.New(
-			max(16, min(28, w-2)),
-			2,
-			ntSparkline.WithMaxValue(float64(max(1, maxInt(values)))),
-			ntSparkline.WithNoAutoMaxValue(),
-			ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(cyan)),
-		)
-		chart.PushAll(intsToFloats(values))
-		chart.DrawColumnsOnly()
-		content = append(content, strings.Split(strings.TrimSuffix(chart.View(), "\n"), "\n")...)
+		total, peak := sumInts(values), maxInt(values)
+		name := m.repoLabel(repo)
+		if name == "" {
+			name = repo.FullName
+		}
+		meta := fmt.Sprintf("◈ %s   %d commits   peak %d/h", name, total, peak)
+		if repo.CommitsFetched.IsZero() {
+			meta += "   · syncing history"
+		}
+		content = append(content, titleStyle.Render(fit(meta, w)))
+		content = append(content, renderBarRows(values, w, 2, 24, scaleMax, now)...)
 		if len(content) >= h {
 			break
 		}
+	}
+	if len(repos) > visible {
+		content = append(content, mutedStyle.Render(fmt.Sprintf("Showing %d–%d of %d repositories · ↑↓ to scroll", start+1, end, len(repos))))
 	}
 	for len(content) < h {
 		content = append(content, "")
@@ -1843,13 +1861,6 @@ func maxInt(values []int) int {
 	return maximum
 }
 
-func intsToFloats(values []int) []float64 {
-	out := make([]float64, len(values))
-	for i, value := range values {
-		out[i] = float64(value)
-	}
-	return out
-}
 
 func (m model) commitChartsView() string {
 	w, h := m.width, m.height
