@@ -3,9 +3,9 @@ module github.com/mojtaba-arvin/gh-fleet
 go 1.24.0
 
 require (
+	github.com/NimbleMarkets/ntcharts v0.5.2
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/NimbleMarkets/ntcharts v0.5.2
 	github.com/charmbracelet/x/ansi v0.10.1
 	golang.org/x/sys v0.36.0
 )
