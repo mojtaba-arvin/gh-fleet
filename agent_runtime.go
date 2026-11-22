@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -413,6 +414,16 @@ func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenO
 func readAgentSpool(path string, cursor agentSpoolCursor) (agentSpoolBatch, error) {
 	if strings.TrimSpace(path) == "" {
 		return agentSpoolBatch{}, errors.New("agent event path is empty")
+	}
+	dirInfo, err := os.Lstat(filepath.Dir(path))
+	if err != nil {
+		return agentSpoolBatch{}, fmt.Errorf("agent event directory: %w", err)
+	}
+	if dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
+		return agentSpoolBatch{}, errors.New("agent event parent must be a real directory, not a symlink")
+	}
+	if runtime.GOOS != "windows" && dirInfo.Mode().Perm()&0077 != 0 {
+		return agentSpoolBatch{}, errors.New("agent event parent directory permissions must be 0700 or stricter")
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
