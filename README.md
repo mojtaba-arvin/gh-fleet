@@ -8,7 +8,7 @@ The dashboard is designed for large terminal windows. It shows an account overvi
 
 - Account-wide repository table with branch, open pull request, open issue, and latest Actions status counts.
 - Aggregate cards for repositories, branches, open pull requests, open issues, running workflows, recent failures, and recently updated branch heads.
-- Live account-wide commit-volume sparklines for the last 24 hours (hourly) and 7 days (daily), sourced from each repository's default-branch history.
+- Independent commit-activity charts for every repository, with hourly buckets for the last 24 hours and daily buckets for the last 7 days; each chart is scoped to that repository's default branch.
 - Per-repository count of currently running GitHub Actions jobs (only `in_progress`; queued runs are not counted).
 - Repository detail includes recent commits and authors for its branches; Actions runs are prioritized by activity and failure state, with logs for the selected run.
 - Repository names are shown without repeating the account owner; the owner is included when repository names collide.
@@ -55,6 +55,9 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 | `Tab` / `Shift+Tab` | Focus repositories, activity, or Actions |
 | `↑` / `↓`, `j` / `k` | Move through the focused section |
 | `Enter` on a repository | Scope the dashboard to that repository |
+| `c` | Open separate commit charts for each repository |
+| `1` / `2` in charts | Switch between 24-hour and 7-day views |
+| `↑` / `↓` in charts | Scroll through repository charts |
 | `Esc` | Return to the account overview |
 | `/` | Filter repository names |
 | `Enter` on a run or `l` | Open that run's logs |
@@ -68,7 +71,7 @@ After a tagged release is published, prebuilt archives for macOS, Linux, and Win
 ## Refresh and network behavior
 
 - The account snapshot and default-branch commit history refresh every 3 minutes.
-- Commit-volume history queries the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The 24-hour chart buckets those commits hourly; the 7-day chart buckets them by day.
+- Commit history queries up to the latest 100 commits per default branch within the previous 7 days, with at most four concurrent REST requests. The `c` charts screen renders each repository independently; `1` shows 24 hourly buckets and `2` shows 7 daily buckets. Charts share a comparable per-bucket Y scale.
 - In the account overview, Actions runs refresh every 60 seconds, with at most four concurrent requests.
 - In repository detail, only the selected repository's branch and Actions data refresh every 20 seconds. Other repositories remain on their last cached snapshot.
 - A selected run's log view refreshes every 15 seconds while live polling is enabled.
