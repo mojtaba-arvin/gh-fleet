@@ -20,7 +20,7 @@ See [Human-centered dashboard design](docs/HUMAN_CENTERED_DASHBOARD.md) for the 
 
 ## What the dashboard can and cannot know
 
-The current implementation is GitHub-first. The header explicitly reports **Agent runtime: NOT CONNECTED**. GitHub provides repository, pull-request, review, and Actions facts, but it does not reveal whether an external coding agent is actively thinking, editing files, blocked on a user, or finished. A workflow trigger actor is not necessarily the agent that created the code. A commit author is not proof of a human or agent identity.
+The dashboard can run in GitHub-only mode or with an optional local agent event source. Without a configured and readable event spool, the header reports **Agent runtime: NOT CONNECTED**. With a source configured, only runner-reported lifecycle events establish task state. GitHub provides repository, pull-request, review, and Actions facts, but it does not reveal whether an external coding agent is actively working, blocked on a user, or finished. A workflow trigger actor is not necessarily the agent that created the code. A commit author is not proof of a human or agent identity.
 
 True agent lifecycle state requires explicit events from the agent runner/orchestrator. The target event contract and privacy boundaries are documented in [Agent telemetry](docs/AGENT_TELEMETRY.md). gh-fleet does not synthesize agent states from GitHub usernames or workflow activity.
 
