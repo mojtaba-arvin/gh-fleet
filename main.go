@@ -269,7 +269,7 @@ type repoResponse struct {
 							ReviewDecision   string `json:"reviewDecision"`
 							MergeStateStatus string `json:"mergeStateStatus"`
 							HeadRefName      string `json:"headRefName"`
-							Author struct {
+							Author           struct {
 								Login string `json:"login"`
 							} `json:"author"`
 							ReviewRequests struct {
@@ -1846,8 +1846,8 @@ func collectAttentionItems(repos []repository, now time.Time) []attentionItem {
 			items = append(items, attentionItem{
 				Priority: 7, Kind: "PR SAMPLE", Repo: repo.FullName,
 				Subject: fmt.Sprintf("%d open PRs · latest 10 inspected", repo.PRs),
-				Detail: "Additional open PR review states were not loaded",
-				Next: "Inspect remaining PRs", URL: repo.URL,
+				Detail:  "Additional open PR review states were not loaded",
+				Next:    "Inspect remaining PRs", URL: repo.URL,
 			})
 		}
 	}
@@ -2263,7 +2263,7 @@ func (m model) repoDetailView() string {
 	prStart := max(0, min(m.prCursor-prCapacity/2, max(0, len(repo.PullRequests)-prCapacity)))
 	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
-		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch " + fallback(repo.Default, "unknown")),
+		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch "+fallback(repo.Default, "unknown")),
 		mutedStyle.Render(fmt.Sprintf("Open PRs %d  ·  Open issues %d  ·  Branches %d  ·  Last push %s", repo.PRs, repo.Issues, repo.BranchN, fallback(shortAge(repo.PushedAt), "—"))),
 		"",
 		titleStyle.Render("OPEN PULL REQUESTS  ·  ↑↓ SELECT  ·  ENTER / o OPEN"),
