@@ -30,9 +30,9 @@ A commit present on multiple branches is counted once per repository. GitHub com
 
 ## Interpretation
 
-Commit volume measures recorded source-control activity, not effort, complexity, quality, or time spent. A large merge commit and a one-line fix each count as one commit. For better managerial context, use the combination of commit volume, distinct contributors, active branches, open PRs, CI outcomes, and last observed activity rather than ranking repositories by commit count alone.
+Commit volume measures recorded source-control activity, not effort, complexity, quality, or time spent. A large merge commit and a one-line fix each count as one commit. GitHub author identity is not proof that an account represents a human, bot, or AI agent.
 
-GitHub may not associate every commit with a user account. When no login is available, gh-fleet falls back to the commit's author name. It does not infer whether that name represents a human, an AI agent, or a shared bot account.
+These figures are diagnostic context only. They are not displayed as the primary health score, are not used to rank people or teams, and must not be used as a productivity leaderboard. The human-centered overview prioritizes delivery state, review handoffs, CI failures, and concrete next actions.
 
 ## Resource policy
 
