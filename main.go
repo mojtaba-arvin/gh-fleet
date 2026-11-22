@@ -1683,6 +1683,9 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 	}
 	heights := scaledBarUnits(values, chartHeight, scaleMax)
 	gap := 1
+	if chartWidth < len(values)*2-1 {
+		gap = 0
+	}
 	slot := max(1, (chartWidth-gap*(len(values)-1))/len(values))
 	rows := make([]string, 0, chartHeight+2)
 	partialBlocks := []rune("▏▎▍▌▋▊▉")
@@ -2165,15 +2168,24 @@ func (m model) narrowView() string {
 	}
 	contentH := max(5, h-7)
 	var content []string
+	panelTitle := []string{m.repoTitle(), m.activityTitle(), m.actionsTitle()}[m.focus]
 	switch m.focus {
 	case 0:
-		content = m.renderRepos(w-2, contentH)
+		if !m.detail && !m.filtering && m.filter == "" && contentH >= 9 {
+			chartH := max(5, contentH/2)
+			repoH := contentH - chartH - 1
+			content = append(content, m.renderCommitChart(w-4, chartH)...)
+			content = append(content, mutedStyle.Render("REPOSITORIES"))
+			content = append(content, m.renderRepos(w-4, repoH)...)
+			panelTitle = "OVERVIEW · COMMIT ACTIVITY + REPOSITORIES"
+		} else {
+			content = m.renderRepos(w-2, contentH)
+		}
 	case 1:
 		content = m.renderActivity(w-2, contentH)
 	case 2:
 		content = m.renderActions(w-2, contentH)
 	}
-	panelTitle := []string{m.repoTitle(), m.activityTitle(), m.actionsTitle()}[m.focus]
 	return lipgloss.JoinVertical(lipgloss.Left, head, tabLine, box(panelTitle, content, w, contentH+2, true), m.renderFooter(w))
 }
 func (m model) helpView() string {
