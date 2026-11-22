@@ -3516,7 +3516,7 @@ func (m model) helpView() string {
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"SOURCES + FRESHNESS",
-		"  Agent runtime is not connected; the overview shows GitHub facts only.",
+		m.agentRuntimeNotice(),
 		"  Commit authors and Actions trigger actors are observed identities, not agent owners.",
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
