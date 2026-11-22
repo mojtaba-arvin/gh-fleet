@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -1866,6 +1867,14 @@ func maxInt(values []int) int {
 	return maximum
 }
 
+
+func intsToFloats(values []int) []float64 {
+	out := make([]float64, len(values))
+	for i, value := range values {
+		out[i] = float64(value)
+	}
+	return out
+}
 
 func (m model) commitChartsView() string {
 	w, h := m.width, m.height
