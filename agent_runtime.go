@@ -9,10 +9,13 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -32,9 +35,158 @@ const (
 )
 
 var (
-	agentTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-	agentRepoPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$`)
-	agentSHApattern   = regexp.MustCompile(`^[A-Fa-f0-9]{7,64}$`)
+	agentTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+)
+
+const (
+	maxAgentSpoolBytes       = 4 << 20
+	maxAgentEventLineBytes   = 16 << 10
+	maxAgentSummaryBytes     = 240
+	maxAgentTasks            = 1000
+	maxAgentSeenEventIDs     = 20000
+	maxAgentEventAge         = 30 * 24 * time.Hour
+	agentTerminalRetention   = 24 * time.Hour
+	agentDefaultHeartbeat    = 30 * time.Second
+	agentMinimumStaleGrace   = 60 * time.Second
+	agentMinimumHeartbeatSec = 5
+	agentMaximumHeartbeatSec = 3600
+	agentPollInterval        = 5 * time.Second
+)
+
+var (
+)
+	agentRepoPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+)
+
+const (
+	maxAgentSpoolBytes       = 4 << 20
+	maxAgentEventLineBytes   = 16 << 10
+	maxAgentSummaryBytes     = 240
+	maxAgentTasks            = 1000
+	maxAgentSeenEventIDs     = 20000
+	maxAgentEventAge         = 30 * 24 * time.Hour
+	agentTerminalRetention   = 24 * time.Hour
+	agentDefaultHeartbeat    = 30 * time.Second
+	agentMinimumStaleGrace   = 60 * time.Second
+	agentMinimumHeartbeatSec = 5
+	agentMaximumHeartbeatSec = 3600
+	agentPollInterval        = 5 * time.Second
+)
+
+var (
+)
+	agentBranchPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+)
+
+const (
+	maxAgentSpoolBytes       = 4 << 20
+	maxAgentEventLineBytes   = 16 << 10
+	maxAgentSummaryBytes     = 240
+	maxAgentTasks            = 1000
+	maxAgentSeenEventIDs     = 20000
+	maxAgentEventAge         = 30 * 24 * time.Hour
+	agentTerminalRetention   = 24 * time.Hour
+	agentDefaultHeartbeat    = 30 * time.Second
+	agentMinimumStaleGrace   = 60 * time.Second
+	agentMinimumHeartbeatSec = 5
+	agentMaximumHeartbeatSec = 3600
+	agentPollInterval        = 5 * time.Second
+)
+
+var (
+)
+	agentSHApattern   = regexp.MustCompile(`^[A-Fa-f0-9]{7,64}package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+)
+
+const (
+	maxAgentSpoolBytes       = 4 << 20
+	maxAgentEventLineBytes   = 16 << 10
+	maxAgentSummaryBytes     = 240
+	maxAgentTasks            = 1000
+	maxAgentSeenEventIDs     = 20000
+	maxAgentEventAge         = 30 * 24 * time.Hour
+	agentTerminalRetention   = 24 * time.Hour
+	agentDefaultHeartbeat    = 30 * time.Second
+	agentMinimumStaleGrace   = 60 * time.Second
+	agentMinimumHeartbeatSec = 5
+	agentMaximumHeartbeatSec = 3600
+	agentPollInterval        = 5 * time.Second
+)
+
+var (
+)
 )
 
 type agentEvent struct {
@@ -54,7 +206,7 @@ type agentEvent struct {
 	Reason                  string          `json:"reason,omitempty"`
 	Summary                 string          `json:"summary,omitempty"`
 	Source                  string          `json:"source"`
-	HeartbeatIntervalSecond int             `json:"heartbeat_interval_seconds,omitempty"`
+	HeartbeatIntervalSeconds int             `json:"heartbeat_interval_seconds,omitempty"`
 }
 
 type agentTask struct {
@@ -139,21 +291,18 @@ func isAgentTaskStale(task agentTask, now time.Time) bool {
 }
 
 func sanitizeAgentSummary(value string) string {
-	value = ansi.Strip(value)
-	value = strings.Map(func(r rune) rune {
+	value = strings.Join(strings.Fields(ansi.Strip(value)), " ")
+	var out strings.Builder
+	for _, r := range value {
 		if unicode.IsControl(r) {
-			return ' '
+			r = ' '
 		}
-		return r
-	}, value)
-	value = strings.Join(strings.Fields(value), " ")
-	if len(value) > maxAgentSummaryBytes {
-		value = value[:maxAgentSummaryBytes]
-		for !strings.ToValidUTF8(value, "") == false {
+		if out.Len()+utf8.RuneLen(r) > maxAgentSummaryBytes {
 			break
 		}
+		out.WriteRune(r)
 	}
-	return value
+	return strings.Join(strings.Fields(out.String()), " ")
 }
 
 func normalizeWorkflowRunID(raw json.RawMessage) (string, error) {
@@ -195,8 +344,8 @@ func validateAgentEvent(event agentEvent, now time.Time) (time.Time, string, err
 	if !agentRepoPattern.MatchString(event.Repository) {
 		return time.Time{}, "", errors.New("repository must use owner/name format")
 	}
-	if len(event.Branch) > 255 || strings.ContainsAny(event.Branch, "\r\n\x00") {
-		return time.Time{}, "", errors.New("branch is too long or contains control characters")
+	if event.Branch != "" && (!agentBranchPattern.MatchString(event.Branch) || strings.Contains(event.Branch, "..") || strings.Contains(event.Branch, "//")) {
+		return time.Time{}, "", errors.New("branch contains unsupported characters")
 	}
 	if event.CommitSHA != "" && !agentSHApattern.MatchString(event.CommitSHA) {
 		return time.Time{}, "", errors.New("commit_sha must be 7–64 hexadecimal characters")
@@ -210,7 +359,7 @@ func validateAgentEvent(event agentEvent, now time.Time) (time.Time, string, err
 	if !agentTokenPattern.MatchString(strings.ReplaceAll(event.Source, "/", ":")) || len(event.Source) > 128 {
 		return time.Time{}, "", errors.New("source is missing or invalid")
 	}
-	if event.HeartbeatIntervalSecond != 0 &&
+	if event.HeartbeatIntervalSeconds != 0 &&
 		(event.HeartbeatIntervalSecond < agentMinimumHeartbeatSec || event.HeartbeatIntervalSecond > agentMaximumHeartbeatSec) {
 		return time.Time{}, "", errors.New("heartbeat_interval_seconds must be between 5 and 3600")
 	}
@@ -282,14 +431,10 @@ func pruneAgentTasks(tasks map[string]agentTask, now time.Time) {
 	if len(tasks) <= maxAgentTasks {
 		return
 	}
-	type oldTask struct {
-		key string
-		at  time.Time
-	}
-	var terminal []oldTask
+	var terminal []oldAgentTask
 	for key, task := range tasks {
 		if isAgentTerminal(task.State) {
-			terminal = append(terminal, oldTask{key: key, at: task.LastEventAt})
+			terminal = append(terminal, oldAgentTask{key: key, at: task.LastEventAt})
 		}
 	}
 	sortAgentOldest(terminal)
@@ -301,16 +446,13 @@ func pruneAgentTasks(tasks map[string]agentTask, now time.Time) {
 	}
 }
 
-func sortAgentOldest(items []struct {
+type oldAgentTask struct {
 	key string
 	at  time.Time
-}) {
-	// Kept as a named helper to make task retention deterministic in tests.
-	for i := 1; i < len(items); i++ {
-		for j := i; j > 0 && items[j].at.Before(items[j-1].at); j-- {
-			items[j], items[j-1] = items[j-1], items[j]
-		}
-	}
+}
+
+func sortAgentOldest(items []oldAgentTask) {
+	sort.Slice(items, func(i, j int) bool { return items[i].at.Before(items[j].at) })
 }
 
 func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenOrder *[]string, event agentEvent, now time.Time) error {
