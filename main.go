@@ -1477,7 +1477,7 @@ func (m model) activityTitle() string {
 			return "RECENT COMMITS · " + m.repoLabel(r) + " · 30D"
 		}
 	}
-	return "BRANCH HEAD ACTIVITY · ALL REPOS · 30D"
+	return "COMMIT VOLUME · DEFAULT BRANCHES · ALL REPOS"
 }
 func (m model) actionsTitle() string {
 	if m.detail {
@@ -1543,7 +1543,70 @@ func (m model) renderRepos(w, h int) []string {
 	}
 	return content
 }
+func commitCounts(repos []repository, now time.Time) ([]int, []int) {
+	hourly, daily := make([]int, 24), make([]int, 7)
+	seen := make(map[string]bool)
+	for _, repo := range repos {
+		for _, item := range repo.Commits {
+			t, err := time.Parse(time.RFC3339, item.Date)
+			if err != nil || t.After(now) || now.Sub(t) >= 7*24*time.Hour { continue }
+			key := repo.FullName + ":" + item.SHA
+			if item.SHA == "" { key = repo.FullName + ":" + item.Date + ":" + item.Msg }
+			if seen[key] { continue }
+			seen[key] = true
+			day := int(now.Truncate(24*time.Hour).Sub(t.Truncate(24*time.Hour)) / (24*time.Hour))
+			if day >= 0 && day < 7 { daily[6-day]++ }
+			if now.Sub(t) < 24*time.Hour {
+				hour := int(now.Truncate(time.Hour).Sub(t.Truncate(time.Hour)) / time.Hour)
+				if hour >= 0 && hour < 24 { hourly[23-hour]++ }
+			}
+		}
+	}
+	return hourly, daily
+}
+
+func sparkline(values []int) string {
+	levels := []rune("▁▂▃▄▅▆▇█")
+	maxValue := 0
+	for _, value := range values { if value > maxValue { maxValue = value } }
+	if maxValue == 0 { return strings.Repeat("·", len(values)) }
+	var out strings.Builder
+	for _, value := range values {
+		level := value * (len(levels)-1) / maxValue
+		if value > 0 && level == 0 { level = 1 }
+		out.WriteRune(levels[level])
+	}
+	return out.String()
+}
+
+func sumInts(values []int) int {
+	total := 0
+	for _, value := range values { total += value }
+	return total
+}
+
+func (m model) renderCommitChart(h int) []string {
+	hourly, daily := commitCounts(m.repos, time.Now())
+	line24 := lipgloss.NewStyle().Foreground(cyan).Render("24H ") + sparkline(hourly)
+	line7 := lipgloss.NewStyle().Foreground(purple).Render("7D  ") + sparkline(daily)
+	status := mutedStyle.Render(fmt.Sprintf("24h: %d commits   7d: %d commits", sumInts(hourly), sumInts(daily)))
+	if m.busyCommitHistory {
+		status += activeStyle.Render("   · refreshing")
+	} else if m.lastCommitHistory.IsZero() {
+		status += mutedStyle.Render("   · loading history")
+	} else {
+		status += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
+	}
+	content := []string{line24, line7, status}
+	for len(content) < h { content = append(content, "") }
+	if len(content) > h { content = content[:h] }
+	return content
+}
+
 func (m model) renderActivity(w, h int) []string {
+	if !m.detail {
+		return m.renderCommitChart(h)
+	}
 	scope := ""
 	if m.detail {
 		if r := m.selectedRepo(); r != nil {
