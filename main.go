@@ -56,6 +56,20 @@ type commitInfo struct {
 	AuthorLogin string `json:"author_login,omitempty"`
 }
 
+type pullRequestSummary struct {
+	Number             int      `json:"number"`
+	Title              string   `json:"title"`
+	URL                string   `json:"url"`
+	IsDraft            bool     `json:"is_draft"`
+	CreatedAt          string   `json:"created_at"`
+	UpdatedAt          string   `json:"updated_at"`
+	ReviewDecision     string   `json:"review_decision"`
+	MergeStateStatus   string   `json:"merge_state_status"`
+	HeadRefName        string   `json:"head_ref_name"`
+	AuthorLogin        string   `json:"author_login,omitempty"`
+	RequestedReviewers []string `json:"requested_reviewers,omitempty"`
+}
+
 type run struct {
 	ID         int64  `json:"id"`
 	Name       string `json:"name"`
@@ -85,9 +99,11 @@ type repository struct {
 	Forks             int          `json:"forks"`
 	PushedAt          string       `json:"pushed_at"`
 	Default           string       `json:"default_branch"`
-	PRs               int          `json:"open_prs"`
-	Issues            int          `json:"open_issues"`
-	BranchN           int          `json:"branch_count"`
+	PRs               int                 `json:"open_prs"`
+	PullRequests      []pullRequestSummary `json:"pull_requests,omitempty"`
+	PRsTruncated      bool                `json:"pull_requests_truncated,omitempty"`
+	Issues            int                 `json:"open_issues"`
+	BranchN           int                 `json:"branch_count"`
 	Branches          []branch     `json:"branches"`
 	Commits           []commitInfo `json:"commits,omitempty"`
 	CommitHistoryDays int          `json:"commit_history_days,omitempty"`
@@ -185,7 +201,17 @@ const repoQuery = `query($after:String) {
       nodes {
         nameWithOwner name url isPrivate isFork stargazerCount forkCount pushedAt
         defaultBranchRef { name }
-        pullRequests(states:OPEN) { totalCount }
+        pullRequests(states:OPEN, first:10, orderBy:{field:UPDATED_AT,direction:DESC}) {
+          totalCount
+          nodes {
+            number title url isDraft createdAt updatedAt reviewDecision mergeStateStatus headRefName
+            author { login }
+            reviewRequests(first:5) {
+              nodes { requestedReviewer { ... on User { login } ... on Team { name } } }
+            }
+          }
+          pageInfo { hasNextPage }
+        }
         issues(states:OPEN) { totalCount }
         refs(refPrefix:"refs/heads/", first:100) {
           totalCount
@@ -217,6 +243,31 @@ type repoResponse struct {
 					} `json:"defaultBranchRef"`
 					PRs struct {
 						Total int `json:"totalCount"`
+						Nodes []struct {
+							Number           int    `json:"number"`
+							Title            string `json:"title"`
+							URL              string `json:"url"`
+							IsDraft          bool   `json:"isDraft"`
+							CreatedAt        string `json:"createdAt"`
+							UpdatedAt        string `json:"updatedAt"`
+							ReviewDecision   string `json:"reviewDecision"`
+							MergeStateStatus string `json:"mergeStateStatus"`
+							HeadRefName      string `json:"headRefName"`
+							Author struct {
+								Login string `json:"login"`
+							} `json:"author"`
+							ReviewRequests struct {
+								Nodes []struct {
+									RequestedReviewer struct {
+										Login string `json:"login"`
+										Name  string `json:"name"`
+									} `json:"requestedReviewer"`
+								} `json:"nodes"`
+							} `json:"reviewRequests"`
+						} `json:"nodes"`
+						Page struct {
+							HasNext bool `json:"hasNextPage"`
+						} `json:"pageInfo"`
 					} `json:"pullRequests"`
 					Issues struct {
 						Total int `json:"totalCount"`
@@ -277,6 +328,24 @@ func (c *apiClient) fetchRepositories(ctx context.Context) (string, []repository
 			r := repository{FullName: n.NameWithOwner, Name: n.Name, URL: n.URL, Private: n.Private, Fork: n.Fork, Stars: n.Stars, Forks: n.Forks, PushedAt: n.PushedAt, PRs: n.PRs.Total, Issues: n.Issues.Total, BranchN: n.Refs.Total, BranchesFetched: time.Now()}
 			if n.Default != nil {
 				r.Default = n.Default.Name
+			}
+			r.PRsTruncated = n.PRs.Page.HasNext
+			for _, p := range n.PRs.Nodes {
+				pr := pullRequestSummary{
+					Number: p.Number, Title: p.Title, URL: p.URL, IsDraft: p.IsDraft,
+					CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, ReviewDecision: p.ReviewDecision,
+					MergeStateStatus: p.MergeStateStatus, HeadRefName: p.HeadRefName, AuthorLogin: p.Author.Login,
+				}
+				for _, request := range p.ReviewRequests.Nodes {
+					reviewer := request.RequestedReviewer.Login
+					if reviewer == "" {
+						reviewer = request.RequestedReviewer.Name
+					}
+					if reviewer != "" {
+						pr.RequestedReviewers = append(pr.RequestedReviewers, reviewer)
+					}
+				}
+				r.PullRequests = append(r.PullRequests, pr)
 			}
 			for _, b := range n.Refs.Nodes {
 				br := branch{Name: b.Name, SHA: b.Target.OID, Date: b.Target.Date, Msg: b.Target.Message}
