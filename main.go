@@ -1710,18 +1710,15 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 			labels.WriteString(fit(label, slot))
 		}
 	} else {
-		for i := range values {
-			if i > 0 { labels.WriteString(strings.Repeat(" ", gap)) }
-			label := ""
-			switch i {
-			case 0: label = "00"
-			case 6: label = "06"
-			case 12: label = "12"
-			case 18: label = "18"
-			case 23: label = "24"
+		axisWidth := slot*len(values) + gap*(len(values)-1)
+		axis := []rune(strings.Repeat(" ", axisWidth))
+		for _, tick := range []struct{ index int; label string }{{0, "00h"}, {6, "06h"}, {12, "12h"}, {18, "18h"}, {23, "24h"}} {
+			position := tick.index * (slot + gap)
+			for offset, char := range tick.label {
+				if position+offset < len(axis) { axis[position+offset] = char }
 			}
-			labels.WriteString(fit(label, slot))
 		}
+		labels.WriteString(string(axis))
 	}
 	rows = append(rows, mutedStyle.Render(strings.TrimRight(labels.String(), " ")))
 	return rows
