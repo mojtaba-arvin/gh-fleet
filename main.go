@@ -1480,58 +1480,28 @@ func metric(label, value, detail string, color lipgloss.Color, w int) string {
 	return box("", []string{top, mid, bot}, w, 5, false)
 }
 func (m model) renderMetrics(w int) string {
-	var branchN, prs, issues, heads, active, failed int
-	repoCount := len(m.repos)
-	selected := ""
-	if m.detail {
-		if r := m.selectedRepo(); r != nil {
-			selected = r.FullName
-			repoCount = 1
+	var working,running,waiting,failed,commits24 int
+	now:=time.Now()
+	for _,repo:=range m.repos {
+		if m.detail { selected:=m.selectedRepo(); if selected==nil||selected.FullName!=repo.FullName { continue } }
+		work:=repoWorkload(repo,now); commits24+=work.Commits24h
+		if work.Commits24h>0||runningRuns(repo)>0||queuedRuns(repo)>0 { working++ }
+		for _,item:=range repo.Runs {
+			if item.Status=="in_progress" { running++ }
+			if queuedRun(item) { waiting++ }
+			if item.Status=="completed"&&item.Conclusion=="failure"&&now.Sub(parseTime(item.UpdatedAt))<=24*time.Hour { failed++ }
 		}
 	}
-	for _, r := range m.repos {
-		if selected != "" && r.FullName != selected {
-			continue
-		}
-		branchN += r.BranchN
-		prs += r.PRs
-		issues += r.Issues
-		seen := map[string]bool{}
-		for _, b := range r.Branches {
-			if t, e := time.Parse(time.RFC3339, b.Date); e == nil && time.Since(t) <= 24*time.Hour && !seen[b.SHA] {
-				heads++
-				seen[b.SHA] = true
-			}
-		}
-		for _, x := range r.Runs {
-			if isActive(x) {
-				active++
-			}
-			if x.Status == "completed" && x.Conclusion == "failure" && time.Since(parseTime(x.UpdatedAt)) <= 24*time.Hour {
-				failed++
-			}
-		}
+	repoCount:=len(m.repos);if m.detail { repoCount=0;if m.selectedRepo()!=nil { repoCount=1 } }
+	cw:=(w-4)/5
+	items:=[]string{
+		metric("REPOSITORIES",strconv.Itoa(repoCount),"monitored",cyan,cw),
+		metric("WORKING REPOS",strconv.Itoa(working),fmt.Sprintf("%d commits · 24h",commits24),purple,cw),
+		metric("CI RUNNING",strconv.Itoa(running),"in progress now",yellow,cw),
+		metric("CI WAITING",strconv.Itoa(waiting),"queued · waiting · pending",blue,cw),
+		metric("CI FAILURES",strconv.Itoa(failed),"failed · last 24h",func()lipgloss.Color{if failed>0{return red};return green}(),cw),
 	}
-	count, gap := 6, 1
-	cw := (w - gap*(count-1)) / count
-	scopeLabel := "account scope"
-	prIssueLabel := "across all repos"
-	repoMetric := "REPOSITORIES"
-	if m.detail {
-		scopeLabel = "selected repo"
-		prIssueLabel = "this repo"
-		repoMetric = "REPOSITORY"
-	}
-	items := []string{metric(repoMetric, strconv.Itoa(repoCount), scopeLabel, cyan, cw), metric("BRANCHES", strconv.Itoa(branchN), "remote heads", purple, cw), metric("OPEN PULL REQUESTS", strconv.Itoa(prs), prIssueLabel, blue, cw), metric("OPEN ISSUES", strconv.Itoa(issues), prIssueLabel, ink, cw), metric("ACTIONS", fmt.Sprintf("%d run · %d fail", active, failed), "active · failed / 24h", func() lipgloss.Color {
-		if failed > 0 {
-			return red
-		}
-		if active > 0 {
-			return yellow
-		}
-		return green
-	}(), cw), metric("ACTIVE BRANCHES", strconv.Itoa(heads), "heads moved · 24h", yellow, cw)}
-	return lipgloss.JoinHorizontal(lipgloss.Top, joinWithSpaces(items, gap)...)
+	return lipgloss.JoinHorizontal(lipgloss.Top,joinWithSpaces(items,1)...)
 }
 func joinWithSpaces(items []string, gap int) []string {
 	out := make([]string, 0, len(items)*2-1)
@@ -1557,7 +1527,7 @@ func (m model) repoTitle() string {
 	if m.filter != "" {
 		return "REPOSITORIES · filter: " + m.filter
 	}
-	return fmt.Sprintf("REPOSITORIES · %d", len(m.repos))
+	return fmt.Sprintf("REPOSITORY WORKLOAD · %d", len(m.repos))
 }
 func (m model) activityTitle() string {
 	if m.detail {
@@ -1565,7 +1535,7 @@ func (m model) activityTitle() string {
 			return "RECENT COMMITS · " + m.repoLabel(r) + " · 30D"
 		}
 	}
-	return "COMMIT ACTIVITY · LAST 24 HOURS · HOURLY"
+	return "RECENT AGENT ACTIVITY · LAST 7 DAYS"
 }
 func (m model) actionsTitle() string {
 	if m.detail {
@@ -1573,18 +1543,21 @@ func (m model) actionsTitle() string {
 			return "ACTIONS · " + m.repoLabel(r)
 		}
 	}
-	return fmt.Sprintf("ACTIONS · %d ACTIVE", m.activeRuns())
+	return fmt.Sprintf("CI QUEUE · %d RUNNING · %d WAITING", m.runningCI(), m.queuedCI())
 }
 func (m model) activeRuns() int {
 	n := 0
-	for _, r := range m.repos {
-		for _, x := range r.Runs {
-			if isActive(x) {
-				n++
-			}
-		}
-	}
+	for _, r := range m.repos { for _, x := range r.Runs { if isActive(x) { n++ } } }
 	return n
+}
+func queuedRun(r run) bool {
+	switch r.Status { case "queued","waiting","requested","pending": return true; default: return false }
+}
+func (m model) runningCI() int {
+	n:=0; for _,repo:=range m.repos { for _,item:=range repo.Runs { if item.Status=="in_progress" { n++ } } }; return n
+}
+func (m model) queuedCI() int {
+	n:=0; for _,repo:=range m.repos { for _,item:=range repo.Runs { if queuedRun(item) { n++ } } }; return n
 }
 func countFmt(n int) string {
 	if n > 999 {
@@ -1592,45 +1565,49 @@ func countFmt(n int) string {
 	}
 	return strconv.Itoa(n)
 }
-func (m model) renderRepos(w, h int) []string {
-	rows := m.visibleRepos()
-	content := make([]string, 0, h)
-	nameW := max(8, w-28)
-	header := fmt.Sprintf("%-*s %4s %3s %3s %4s %5s", nameW, "REPOSITORY", "BR", "PR", "IS", "RUN", "CI")
-	content = append(content, mutedStyle.Render(fit(header, w)))
-	room := max(0, h-1)
-	if len(rows) == 0 {
-		if len(m.repos) == 0 {
-			content = append(content, mutedStyle.Render("Waiting for GitHub…"))
-		} else {
-			content = append(content, mutedStyle.Render("No matching repositories"))
-		}
+func (m model) renderRepos(w,h int) []string {
+	rows:=m.visibleRepos();content:=make([]string,0,h)
+	nameW:=max(10,w/4);workW,trendW,actorW,ciW:=10,7,max(7,w/7),12
+	header:=fmt.Sprintf("%-*s %*s %*s %*s %*s",nameW,"REPOSITORY",workW,"24H / 7D",trendW,"TREND",actorW,"ACTORS",ciW,"CI")
+	content=append(content,mutedStyle.Render(fit(header,w)));room:=max(0,h-1)
+	if len(rows)==0 { message:="No matching repositories";if len(m.repos)==0{message="Waiting for GitHub repository snapshot…"};content=append(content,mutedStyle.Render(message)) }
+	start:=max(0,min(m.cursor-room/2,max(0,len(rows)-room)))
+	for i:=start;i<min(len(rows),start+room);i++ {
+		r:=rows[i];work:=repoWorkload(*r,time.Now());actors:=strings.Join(work.Actors,",");if actors==""{actors="—"}
+		ci:=repoCI(*r)
+		line:=titleStyle.Render(fit(m.repoLabel(r),nameW))+" "+
+			mutedStyle.Render(fit(fmt.Sprintf("%d/%d",work.Commits24h,work.Commits7d),workW))+" "+
+			branchStyle.Render(fit(sparkline(work.Daily),trendW))+" "+
+			mutedStyle.Render(fit(actors,actorW))+" "+
+			ciStyle(ci).Render(fit(ci,ciW))
+		if i==m.cursor { line=selectStyle.Width(w).Render(fit(line,w)) };content=append(content,fit(line,w))
 	}
-	start := max(0, min(m.cursor-room/2, max(0, len(rows)-room)))
-	for i := start; i < min(len(rows), start+room); i++ {
-		r := rows[i]
-		ci := "—"
-		cistyle := mutedStyle
-		if lr := latestRun(*r); lr != nil {
-			ci = compactCI(*lr)
-			cistyle = stateStyle(*lr)
-		}
-		running := runningRuns(*r)
-		runStyle := mutedStyle
-		if running > 0 {
-			runStyle = activeStyle
-		}
-		line := fmt.Sprintf("%-*s %4s %3s %3s ", nameW, fit(m.repoLabel(r), nameW), countFmt(r.BranchN), countFmt(r.PRs), countFmt(r.Issues)) + runStyle.Render(fit(countFmt(running), 4)) + " " + cistyle.Render(fit(ci, 5))
-		if i == m.cursor {
-			line = selectStyle.Width(w).Render(fit(line, w))
-		}
-		content = append(content, line)
-	}
-	for len(content) < h {
-		content = append(content, "")
-	}
-	return content
+	for len(content)<h { content=append(content,"") };return content
 }
+func ciStyle(state string) lipgloss.Style {
+	switch { case strings.Contains(state,"RUN"):return activeStyle;case strings.Contains(state,"WAIT"):return branchStyle;case strings.Contains(state,"FAIL"):return badStyle;case strings.Contains(state,"OK"):return goodStyle;default:return mutedStyle }
+}
+func repoCI(repo repository) string {
+	running,waiting,failed:=0,0,0
+	for _,item:=range repo.Runs { if item.Status=="in_progress"{running++};if queuedRun(item){waiting++};if item.Status=="completed"&&item.Conclusion=="failure"&&time.Since(parseTime(item.UpdatedAt))<24*time.Hour{failed++} }
+	switch {case running>0&&waiting>0:return fmt.Sprintf("%d RUN · %d WAIT",running,waiting);case running>0:return fmt.Sprintf("%d RUNNING",running);case waiting>0:return fmt.Sprintf("%d WAITING",waiting);case failed>0:return fmt.Sprintf("%d FAILED",failed)}
+	if lr:=latestRun(repo);lr!=nil&&lr.Conclusion=="success"{return "✓ OK"};return "—"
+}
+type repoWork struct { Commits24h,Commits7d int; Daily []int; Actors []string; LastCommit time.Time }
+func commitActor(item commitInfo) string { if item.AuthorLogin!="" { return item.AuthorLogin };return item.Author }
+func repoWorkload(repo repository,now time.Time) repoWork {
+	out:=repoWork{Daily:make([]int,7)};seen:=map[string]bool{};actors:=map[string]bool{}
+	for _,item:=range repo.Commits {
+		t:=parseTime(item.Date);if t.IsZero()||t.After(now)||now.Sub(t)>=7*24*time.Hour{continue}
+		key:=item.SHA;if key==""{key=item.Date+":"+item.Msg+":"+commitActor(item)};if seen[key]{continue};seen[key]=true;out.Commits7d++
+		day:=int(now.UTC().Truncate(24*time.Hour).Sub(t.UTC().Truncate(24*time.Hour))/(24*time.Hour));if day>=0&&day<7{out.Daily[6-day]++}
+		if now.Sub(t)<24*time.Hour{out.Commits24h++};if t.After(out.LastCommit){out.LastCommit=t};if actor:=commitActor(item);actor!=""{actors[actor]=true}
+	}
+	for _,item:=range repo.Runs{if isActive(item)&&item.Actor.Login!=""{actors[item.Actor.Login]=true}}
+	for actor:=range actors{out.Actors=append(out.Actors,actor)};sort.Strings(out.Actors);return out
+}
+func queuedRuns(repo repository) int { n:=0;for _,item:=range repo.Runs{if queuedRun(item){n++}};return n }
+
 func commitCounts(repos []repository, now time.Time) ([]int, []int) {
 	hourly, daily := make([]int, 24), make([]int, 7)
 	seen := make(map[string]bool)
