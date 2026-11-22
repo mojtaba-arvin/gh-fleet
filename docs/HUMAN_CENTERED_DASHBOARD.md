@@ -34,7 +34,7 @@ Every status belongs to one of three evidence classes:
 
 Derived hints must be phrased as observations, not diagnoses. "Running for 52m" is valid; "agent is stuck" is not. A workflow trigger actor is not the task owner. A commit author is not proof of a human or agent identity.
 
-When no agent event source is configured, show **Agent runtime: not connected** and explicitly state that the dashboard is showing GitHub signals only. Do not show zero agents or invent agent states.
+When no agent event source is configured or the spool cannot be read, show **Agent runtime: not connected** or **source unavailable** and explicitly state that the dashboard is showing GitHub signals only. Do not show zero agents or invent agent states. With a valid source, show counts and states only from runner-reported events.
 
 ### 3. Optimize for human decisions, not individual surveillance
 
@@ -51,6 +51,7 @@ The information architecture is deliberately small:
 3. **CI queue** — queued, running, and recent failed workflow runs with log access.
 4. **Repository detail** — open PRs, recent CI, branches, and links, loaded/scoped on demand.
 5. **GitHub identities** — optional diagnostic view; labels explicitly say "observed commit authors" and "workflow trigger actors", never "agents".
+6. **Agent runtime (optional)** — runner-reported task lifecycle, displayed separately from GitHub facts; no agent ranking or control actions.
 
 A screen should not show all metrics and all underlying events simultaneously.
 
@@ -90,7 +91,7 @@ The main panel is split into two queues when the terminal is wide enough and sta
 
 Each row must identify the repository and the actual PR/workflow, explain the observed signal, show age, and expose the next human action. Thresholds are prompts for inspection, not claims that work is stuck.
 
-**In flight / waiting** shows current running and queued CI, plus PRs explicitly waiting for a requested review. It distinguishes:
+**In flight / waiting** shows current running and queued CI, PRs explicitly waiting for a requested review, and runner-reported agent tasks in starting, working, or waiting states when telemetry is connected. It distinguishes:
 - running;
 - queued;
 - review requested / awaiting response;
@@ -122,7 +123,7 @@ Include queued, running, and recent failed runs. Show workflow, repository, bran
 - Draft PRs are not treated as review-ready work.
 - Missing, partial, stale, or unavailable data is shown as unknown/incomplete, not as zero or healthy.
 
-Thresholds are centralized constants and have unit tests. They can become user-configurable later.
+Thresholds are centralized constants and have unit tests. Agent stale detection uses max(three declared heartbeat intervals, 60 seconds); stale is a freshness overlay, not a lifecycle state.
 
 ## Interaction model
 
