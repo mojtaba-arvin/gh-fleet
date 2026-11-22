@@ -1959,16 +1959,15 @@ func calendarHeatmapRows(repo repository, now time.Time, widthLimit int) []strin
 	gridStart := now.Truncate(24*time.Hour).AddDate(0, 0, -364)
 	gridStart = gridStart.Add(-time.Duration(gridStart.Weekday()) * 24 * time.Hour)
 	monthLine := []rune(strings.Repeat(" ", weeks))
-	lastMonth := time.Month(0)
-	for week := 0; week < weeks; week++ {
-		date := gridStart.Add(time.Duration(week*7) * 24 * time.Hour)
-		if date.Month() != lastMonth {
+	for dayOffset := 0; dayOffset < weeks*7; dayOffset++ {
+		date := gridStart.Add(time.Duration(dayOffset) * 24 * time.Hour)
+		if dayOffset == 0 || date.Day() == 1 {
+			week := dayOffset / 7
 			for offset, ch := range date.Format("Jan") {
 				if week+offset < len(monthLine) {
 					monthLine[week+offset] = ch
 				}
 			}
-			lastMonth = date.Month()
 		}
 	}
 	rows := []string{mutedStyle.Render(strings.TrimRight(string(monthLine), " "))}
@@ -2050,6 +2049,9 @@ func (m model) commitChartsView() string {
 		message := "No repositories available in this scope."
 		if period == 365 {
 			message = "No repository has commit activity in the last year."
+			if m.busyCommitHistory {
+				message = "Loading one-year commit history for active repositories…"
+			}
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render(message), "Esc to return")
 	}
@@ -2118,6 +2120,15 @@ func (m model) commitChartsView() string {
 	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
 	footer := mutedStyle.Render(fmt.Sprintf("ACTIVE REPOSITORIES  %d–%d OF %d", startIndex+1, endIndex, len(repos))) +
 		"   ↑↓ / j k scroll   PgUp/PgDn page   1 24h   2 7d   3 1y   r refresh   Esc back"
+	if period == 365 {
+		legend := mutedStyle.Render("LESS ·") +
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#315b46")).Render(" ░") +
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#3d8058")).Render(" ▒") +
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#55a96b")).Render(" ▓") +
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#8bd49c")).Render(" █") +
+			mutedStyle.Render(" MORE")
+		footer += "   " + legend
+	}
 	if m.busyCommitHistory {
 		footer += activeStyle.Render("   · syncing")
 	} else if !m.lastCommitHistory.IsZero() {
