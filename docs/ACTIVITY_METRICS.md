@@ -38,7 +38,7 @@ GitHub may not associate every commit with a user account. When no login is avai
 
 - Maximum four concurrent repository history fetches.
 - Branch history uses one GraphQL query per repository page of up to 100 refs, with at most 20 commit nodes per branch.
-- Refresh interval is three minutes and cached data remains visible during API failures.
+- Activity-history refresh interval is five minutes; repository metadata refreshes every three minutes, CI every 60 seconds, and cached data remains visible during API failures.
 - The dashboard does not fetch per-commit diffs or file statistics for the overview.
 - Detailed commit/PR information should be loaded only after the operator selects a repository or item.
 
