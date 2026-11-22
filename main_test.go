@@ -6,50 +6,55 @@ import (
 	"time"
 )
 
-func TestDefaultDashboardRendersWideCommitHistogram(t *testing.T) {
+func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width:  100,
-		height: 30,
+		width: 120, height: 30, lastRepos: now,
 		repos: []repository{{
-			FullName:       "acme/active",
-			Name:           "active",
-			Default:        "main",
-			CommitsFetched: now,
-			Commits: []commitInfo{
-				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339)},
-				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339)},
-			},
+			FullName: "acme/checkout", Name: "checkout", PRs: 1,
+			Runs: []run{{
+				ID: 7, Name: "unit-tests", Status: "completed", Conclusion: "failure",
+				UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339),
+				URL: "https://github.com/acme/checkout/actions/runs/7",
+			}},
+			PullRequests: []pullRequestSummary{{
+				Number: 12, Title: "Adjust checkout", ReviewDecision: "CHANGES_REQUESTED",
+				UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339),
+				URL: "https://github.com/acme/checkout/pull/12",
+			}},
 		}},
 	}
-	view := strings.Join(m.renderCommitChart(90, 12), "\n")
-	for _, want := range []string{"active", "2 commits", "peak 1", "now", "█"} {
+	view := m.View()
+	for _, want := range []string{"DELIVERY OPERATIONS", "NEEDS ATTENTION", "CI FAILED", "CHANGES REQUESTED", "IN FLIGHT / WAITING"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("default dashboard chart does not contain %q:\n%s", want, view)
+			t.Errorf("operator overview does not contain %q:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"COMMITS · 30D", "CONTRIBUTORS", "ACTOR / AGENT", "2 commits"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("operator overview still foregrounds %q:\n%s", unwanted, view)
 		}
 	}
 }
 
-func TestNarrowDashboardShowsOperationalRepositoryWorkload(t *testing.T) {
+func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
-		width: 80, height: 30,
+		width: 80, height: 24, lastRepos: now,
 		repos: []repository{{
-			FullName: "acme/active", Name: "active", Default: "main",
-			CommitsFetched: now,
-			Commits: []commitInfo{
-				{SHA: "one", Date: now.Add(-time.Minute).Format(time.RFC3339), AuthorLogin: "agent-one"},
-				{SHA: "two", Date: now.Add(-time.Hour).Format(time.RFC3339), AuthorLogin: "agent-one"},
-			},
-			Runs: []run{{Status: "in_progress", Actor: struct {
-				Login string `json:"login"`
-			}{Login: "agent-two"}}},
+			FullName: "acme/active", Name: "active", PRs: 1,
+			PullRequests: []pullRequestSummary{{
+				Number: 27, Title: "Review access change", ReviewDecision: "REVIEW_REQUIRED",
+				RequestedReviewers: []string{"reviewer-a"},
+				UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339),
+				URL: "https://github.com/acme/active/pull/27",
+			}},
 		}},
 	}
-	view := m.narrowView()
-	for _, want := range []string{"Repositories", "active", "~1", "2/2"} {
+	view := m.View()
+	for _, want := range []string{"Overview", "Repositories", "CI queue", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW", "reviewer-a"} {
 		if !strings.Contains(view, want) {
-			t.Errorf("narrow operations dashboard does not contain %q:\n%s", want, view)
+			t.Errorf("narrow operator dashboard does not contain %q:\n%s", want, view)
 		}
 	}
 }
