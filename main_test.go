@@ -411,6 +411,7 @@ func TestPullRequestReviewTextUsesExplicitReviewEvidence(t *testing.T) {
 		{"changes requested", pullRequestSummary{ReviewDecision: "CHANGES_REQUESTED"}, "CHANGES REQUESTED"},
 		{"reviewer missing", pullRequestSummary{ReviewDecision: "REVIEW_REQUIRED"}, "REVIEWER NOT REQUESTED"},
 		{"waiting", pullRequestSummary{ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"alice"}}, "AWAITING alice"},
+		{"waiting reviewer list truncated", pullRequestSummary{ReviewDecision: "REVIEW_REQUIRED", RequestedReviewers: []string{"alice"}, RequestedReviewersTruncated: true}, "AWAITING alice, …"},
 		{"approved", pullRequestSummary{ReviewDecision: "APPROVED"}, "APPROVED"},
 		{"unknown", pullRequestSummary{}, "REVIEW STATUS UNKNOWN"},
 	}
