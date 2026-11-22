@@ -676,7 +676,7 @@ type model struct {
 	agentEventsPath     string
 	agentCursor         agentSpoolCursor
 	agentTasks          map[string]agentTask
-	agentSeenEventIDs  map[string]struct{}
+	agentSeenEventIDs   map[string]struct{}
 	agentSeenOrder      []string
 	lastAgentPoll       time.Time
 	agentLastErr        string
