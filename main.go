@@ -92,28 +92,28 @@ type run struct {
 }
 
 type repository struct {
-	FullName          string       `json:"full_name"`
-	Name              string       `json:"name"`
-	URL               string       `json:"url"`
-	Private           bool         `json:"private"`
-	Fork              bool         `json:"fork"`
-	Stars             int          `json:"stars"`
-	Forks             int          `json:"forks"`
-	PushedAt          string       `json:"pushed_at"`
-	Default           string       `json:"default_branch"`
-	PRs               int                 `json:"open_prs"`
+	FullName          string               `json:"full_name"`
+	Name              string               `json:"name"`
+	URL               string               `json:"url"`
+	Private           bool                 `json:"private"`
+	Fork              bool                 `json:"fork"`
+	Stars             int                  `json:"stars"`
+	Forks             int                  `json:"forks"`
+	PushedAt          string               `json:"pushed_at"`
+	Default           string               `json:"default_branch"`
+	PRs               int                  `json:"open_prs"`
 	PullRequests      []pullRequestSummary `json:"pull_requests,omitempty"`
-	PRsTruncated      bool                `json:"pull_requests_truncated,omitempty"`
-	Issues            int                 `json:"open_issues"`
-	BranchN           int                 `json:"branch_count"`
-	Branches          []branch     `json:"branches"`
-	Commits           []commitInfo `json:"commits,omitempty"`
-	CommitHistoryDays int          `json:"commit_history_days,omitempty"`
-	BranchHistoryDays int          `json:"branch_history_days,omitempty"`
-	Runs              []run        `json:"runs"`
-	Fetched           time.Time    `json:"fetched"`
-	BranchesFetched   time.Time    `json:"branches_fetched"`
-	CommitsFetched    time.Time    `json:"commits_fetched"`
+	PRsTruncated      bool                 `json:"pull_requests_truncated,omitempty"`
+	Issues            int                  `json:"open_issues"`
+	BranchN           int                  `json:"branch_count"`
+	Branches          []branch             `json:"branches"`
+	Commits           []commitInfo         `json:"commits,omitempty"`
+	CommitHistoryDays int                  `json:"commit_history_days,omitempty"`
+	BranchHistoryDays int                  `json:"branch_history_days,omitempty"`
+	Runs              []run                `json:"runs"`
+	Fetched           time.Time            `json:"fetched"`
+	BranchesFetched   time.Time            `json:"branches_fetched"`
+	CommitsFetched    time.Time            `json:"commits_fetched"`
 }
 
 type diskCache struct {
