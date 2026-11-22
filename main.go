@@ -1916,7 +1916,7 @@ func (m model) renderOverviewSummary() string {
 
 func (m model) renderAttentionRows(w, h int) []string {
 	items := m.attentionItems()
-	if w < 70 {
+	if w < 88 {
 		rows := make([]string, 0, h)
 		start := max(0, min(m.attentionCursor, max(0, len(items)-1)))
 		for i := start; i < len(items) && len(rows) < h; i++ {
@@ -2040,7 +2040,7 @@ func collectInFlightItems(repos []repository, now time.Time) []inFlightItem {
 
 func (m model) renderInFlightRows(w, h int) []string {
 	items := collectInFlightItems(m.repos, time.Now())
-	if w < 70 {
+	if w < 88 {
 		rows := make([]string, 0, h)
 		for i := 0; i < min(len(items), h); i++ {
 			item := items[i]
