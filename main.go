@@ -1596,8 +1596,12 @@ func sparkline(values []int) string {
 	}
 	var out strings.Builder
 	for _, value := range values {
+		if value == 0 {
+			out.WriteRune('·')
+			continue
+		}
 		level := value * (len(levels) - 1) / maxValue
-		if value > 0 && level == 0 {
+		if level == 0 {
 			level = 1
 		}
 		out.WriteRune(levels[level])
