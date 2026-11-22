@@ -88,6 +88,7 @@ type repository struct {
 	Branches          []branch     `json:"branches"`
 	Commits           []commitInfo `json:"commits,omitempty"`
 	CommitHistoryDays int          `json:"commit_history_days,omitempty"`
+	BranchHistoryDays int          `json:"branch_history_days,omitempty"`
 	Runs              []run        `json:"runs"`
 	Fetched           time.Time    `json:"fetched"`
 	BranchesFetched   time.Time    `json:"branches_fetched"`
@@ -756,7 +757,7 @@ func newModel(client *apiClient, cachePath string) model {
 	for _, r := range c.Repos {
 		client.cache[r.FullName] = append([]run(nil), r.Runs...)
 	}
-	var refsAt, runsAt, commitsAt time.Time
+	var refsAt, runsAt, commitsAt, branchHistoryAt time.Time
 	needsYearHistory := false
 	for _, r := range c.Repos {
 		if r.CommitHistoryDays < 7 {
@@ -768,6 +769,9 @@ func newModel(client *apiClient, cachePath string) model {
 		if r.BranchesFetched.After(refsAt) {
 			refsAt = r.BranchesFetched
 		}
+		if r.BranchHistoryDays >= 7 && r.BranchesFetched.After(branchHistoryAt) {
+			branchHistoryAt = r.BranchesFetched
+		}
 		if r.Fetched.After(runsAt) {
 			runsAt = r.Fetched
 		}
@@ -777,7 +781,7 @@ func newModel(client *apiClient, cachePath string) model {
 	}
 	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
 		busyRuns: make(map[string]bool), busyBranches: make(map[string]bool), queuedRuns: make(map[string]bool),
-		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt, lastBranchHistory: refsAt}
+		retryAt: make(map[string]time.Time), failures: make(map[string]int), lastRepos: refsAt, lastRuns: runsAt, lastCommitHistory: commitsAt, lastBranchHistory: branchHistoryAt}
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(fetchReposCmd(m.api), tickCmd()) }
@@ -1024,8 +1028,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					msg.repos[i].Fetched = v.Fetched
 					msg.repos[i].Branches = v.Branches
 					msg.repos[i].BranchesFetched = v.BranchesFetched
+					msg.repos[i].BranchHistoryDays = v.BranchHistoryDays
 					msg.repos[i].Commits = v.Commits
 					msg.repos[i].CommitHistoryDays = v.CommitHistoryDays
+					msg.repos[i].BranchHistoryDays = v.BranchHistoryDays
 					msg.repos[i].CommitsFetched = v.CommitsFetched
 				}
 			}
@@ -1044,7 +1050,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.drainRunQueue()...)
 			needsBranchHistory := false
 			for _, repo := range m.repos {
-				if repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= refsRefreshInterval {
+				if repo.BranchHistoryDays < 7 || repo.BranchesFetched.IsZero() || time.Since(repo.BranchesFetched) >= refsRefreshInterval {
 					needsBranchHistory = true
 					break
 				}
@@ -1086,6 +1092,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.Branches = msg.branches
 			r.BranchN = len(msg.branches)
 			r.BranchesFetched = time.Now()
+			r.BranchHistoryDays = 7
 			saveCache(m)
 		}
 	case branchHistoryMsg:
@@ -1098,11 +1105,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.Branches = items
 				r.BranchN = max(r.BranchN, len(items))
 				r.BranchesFetched = now
+				r.BranchHistoryDays = 7
 			}
 		}
 		for name := range msg.skipped {
 			if r := m.repoByName(name); r != nil {
 				r.BranchesFetched = now
+				r.BranchHistoryDays = 7
 			}
 		}
 		m.lastBranchHistory = now
@@ -1149,8 +1158,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.busyCommitHistory = true
 			cmds = append(cmds, fetchCommitHistoryCmd(m.api, m.repos))
 		}
+		needsBranchHistory := false
+		for _, repo := range m.repos {
+			if repo.BranchHistoryDays < 7 {
+				needsBranchHistory = true
+				break
+			}
+		}
 		if !m.detail && len(m.repos) > 0 && !m.busyBranchHistory &&
-			(m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) {
+			(needsBranchHistory || m.lastBranchHistory.IsZero() || now.Sub(m.lastBranchHistory) >= refsRefreshInterval) {
 			m.busyBranchHistory = true
 			cmds = append(cmds, fetchBranchHistoryCmd(m.api, m.repos))
 		}
