@@ -1662,7 +1662,7 @@ func sumInts(values []int) int {
 	return total
 }
 
-func scaledBarHeights(values []int, height, scaleMax int) []int {
+func scaledBarUnits(values []int, height, scaleMax int) []int {
 	out := make([]int, len(values))
 	maximum := max(1, scaleMax)
 	if height <= 0 {
@@ -1672,7 +1672,8 @@ func scaledBarHeights(values []int, height, scaleMax int) []int {
 		if value <= 0 {
 			continue
 		}
-		out[i] = (value*height + maximum - 1) / maximum
+		units := value * height * 8 / maximum
+		out[i] = max(1, units)
 	}
 	return out
 }
@@ -1681,22 +1682,28 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 	if len(values) == 0 || chartWidth < len(values) || chartHeight < 1 {
 		return []string{mutedStyle.Render("No activity in this range")}
 	}
-	heights := scaledBarHeights(values, chartHeight, scaleMax)
+	heights := scaledBarUnits(values, chartHeight, scaleMax)
 	gap := 1
 	slot := max(1, (chartWidth-gap*(len(values)-1))/len(values))
 	barStyle := lipgloss.NewStyle().Foreground(cyan).Bold(true)
 	rows := make([]string, 0, chartHeight+2)
+	partialBlocks := []rune("▏▎▍▌▋▊▉")
 	for level := chartHeight; level >= 1; level-- {
 		var line strings.Builder
-		for i, barHeight := range heights {
+		for i, barUnits := range heights {
 			if i > 0 {
 				line.WriteString(strings.Repeat(" ", gap))
 			}
-			if barHeight >= level {
+			remaining := barUnits - (level-1)*8
+			switch {
+			case remaining >= 8:
 				line.WriteString(barStyle.Render(strings.Repeat("█", slot)))
-			} else if level == 1 {
+			case remaining > 0:
+				glyph := string(partialBlocks[remaining-1])
+				line.WriteString(barStyle.Render(strings.Repeat(glyph, slot)))
+			case level == 1:
 				line.WriteString(mutedStyle.Render(strings.Repeat("·", slot)))
-			} else {
+			default:
 				line.WriteString(strings.Repeat(" ", slot))
 			}
 		}
@@ -1721,7 +1728,7 @@ func renderBarRows(values []int, chartWidth, chartHeight, period, scaleMax int, 
 		for _, tick := range []struct {
 			index int
 			label string
-		}{{0, "00h"}, {6, "06h"}, {12, "12h"}, {18, "18h"}, {23, "24h"}} {
+		}{{0, "-24h"}, {6, "-18h"}, {12, "-12h"}, {18, "-6h"}, {23, "now"}} {
 			position := tick.index * (slot + gap)
 			for offset, char := range tick.label {
 				if position+offset < len(axis) {

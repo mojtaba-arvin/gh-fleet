@@ -79,19 +79,19 @@ func TestRepoCommitBucketsAreIndependent(t *testing.T) {
 	}
 }
 
-func TestScaledBarHeightsUseSharedScale(t *testing.T) {
-	got := scaledBarHeights([]int{0, 2, 5}, 4, 10)
-	want := []int{0, 1, 2}
+func TestScaledBarUnitsUseSharedScale(t *testing.T) {
+	got := scaledBarUnits([]int{0, 2, 5}, 4, 10)
+	want := []int{0, 6, 16}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("scaledBarHeights()[%d] = %d, want %d (all: %v)", i, got[i], want[i], got)
+			t.Fatalf("scaledBarUnits()[%d] = %d, want %d (all: %v)", i, got[i], want[i], got)
 		}
 	}
 }
 
-func TestScaledBarHeightsNeverHidesNonZeroActivity(t *testing.T) {
-	got := scaledBarHeights([]int{1, 0, 100}, 5, 100)
-	if got[0] != 1 || got[1] != 0 || got[2] != 5 {
-		t.Fatalf("scaledBarHeights() = %v, want [1 0 5]", got)
+func TestScaledBarUnitsPreserveSmallNonZeroActivity(t *testing.T) {
+	got := scaledBarUnits([]int{1, 0, 100}, 5, 100)
+	if got[0] != 1 || got[1] != 0 || got[2] != 40 {
+		t.Fatalf("scaledBarUnits() = %v, want [1 0 40]", got)
 	}
 }
