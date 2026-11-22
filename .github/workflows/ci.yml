@@ -33,7 +33,9 @@ jobs:
             exit 1
           fi
       - name: Resolve dependencies
-        run: go mod download all
+        run: |
+          go mod download all
+          grep -i ntcharts go.sum
       - name: Vet
         run: go vet ./...
       - name: Tests
