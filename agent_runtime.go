@@ -341,10 +341,14 @@ func applyAgentEvent(tasks map[string]agentTask, seen map[string]struct{}, seenO
 		if err := validateAgentTransition(task, event.EventType, event.State); err != nil {
 			return err
 		}
-		if event.Sequence > 0 && task.HasSequence && event.Sequence <= task.Sequence {
-			return errors.New("sequence is not newer than the last accepted event")
-		}
-		if event.Sequence == 0 && !occurredAt.After(task.LastEventAt) {
+		if event.Sequence > 0 {
+			if task.HasSequence && event.Sequence <= task.Sequence {
+				return errors.New("sequence is not newer than the last accepted event")
+			}
+			if !task.HasSequence && !occurredAt.After(task.LastEventAt) {
+				return errors.New("event timestamp is not newer than the last accepted event")
+			}
+		} else if !occurredAt.After(task.LastEventAt) {
 			return errors.New("event timestamp is not newer than the last accepted event")
 		}
 		if task.Repository != event.Repository {
@@ -513,6 +517,19 @@ func agentPollCmd(path string, cursor agentSpoolCursor) tea.Cmd {
 	}
 }
 
+func agentTaskURL(task agentTask) string {
+	if task.Reason == "ci" && task.WorkflowRunID != "" {
+		return fmt.Sprintf("https://github.com/%s/actions/runs/%s", task.Repository, task.WorkflowRunID)
+	}
+	if task.PullRequest > 0 {
+		return fmt.Sprintf("https://github.com/%s/pull/%d", task.Repository, task.PullRequest)
+	}
+	if task.WorkflowRunID != "" {
+		return fmt.Sprintf("https://github.com/%s/actions/runs/%s", task.Repository, task.WorkflowRunID)
+	}
+	return ""
+}
+
 func collectAgentAttentionItems(tasks map[string]agentTask, now time.Time) []attentionItem {
 	var items []attentionItem
 	for _, task := range tasks {
@@ -527,6 +544,7 @@ func collectAgentAttentionItems(tasks map[string]agentTask, now time.Time) []att
 			Repo:    task.Repository,
 			Subject: fmt.Sprintf("Agent %s · task %s", task.AgentID, task.TaskID),
 			Age:     age,
+			URL:     agentTaskURL(task),
 		}
 		switch {
 		case task.State == "failed":
