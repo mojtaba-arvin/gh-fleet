@@ -1798,7 +1798,7 @@ func (m model) renderCommitChart(w, h int) []string {
 			)
 			trend.PushAll(intsToFloats(values))
 			trend.DrawColumnsOnly()
-			line := titleStyle.Render(fit(name, max(8, w-50))) +
+			line := titleStyle.Render(fit(name, max(8, w-62))) +
 				mutedStyle.Render(fmt.Sprintf("  %d commits · peak %d · %d/24 active  ", total, peak, active)) +
 				strings.TrimSpace(trend.View())
 			content = append(content, fit(line, w))
