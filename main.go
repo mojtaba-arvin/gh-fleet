@@ -1784,12 +1784,27 @@ func (m model) renderCommitChart(w, h int) []string {
 				active++
 			}
 		}
-		name := fit(m.repoLabel(repo), max(8, w-36))
+		name := m.repoLabel(repo)
 		meta := fmt.Sprintf("%s  %d commits  ·  peak %d  ·  %d/24 active", name, total, peak, active)
 		if repo.CommitsFetched.IsZero() {
 			meta = fmt.Sprintf("%s  ·  loading history", name)
 		}
-		content = append(content, titleStyle.Render(fit(meta, w)))
+		if w >= 65 {
+			trend := ntSparkline.New(
+				max(12, min(20, w/4)), 1,
+				ntSparkline.WithMaxValue(float64(scaleMax)),
+				ntSparkline.WithNoAutoMaxValue(),
+				ntSparkline.WithStyle(lipgloss.NewStyle().Foreground(purple)),
+			)
+			trend.PushAll(intsToFloats(values))
+			trend.DrawColumnsOnly()
+			line := titleStyle.Render(fit(name, max(8, w-50))) +
+				mutedStyle.Render(fmt.Sprintf("  %d commits · peak %d · %d/24 active  ", total, peak, active)) +
+				strings.TrimSpace(trend.View())
+			content = append(content, fit(line, w))
+		} else {
+			content = append(content, titleStyle.Render(fit(meta, w)))
+		}
 		content = append(content, renderBarRows(values, chartWidth, chartHeight, 24, scaleMax, now)...)
 	}
 	for len(content) < h {
@@ -1864,6 +1879,14 @@ func maxInt(values []int) int {
 		}
 	}
 	return maximum
+}
+
+func intsToFloats(values []int) []float64 {
+	out := make([]float64, len(values))
+	for i, value := range values {
+		out[i] = float64(value)
+	}
+	return out
 }
 
 func (m model) commitChartsView() string {
