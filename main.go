@@ -1397,52 +1397,24 @@ func box(title string, content []string, w, h int, active bool) string {
 }
 
 func (m model) View() string {
-	if m.width == 0 || m.height == 0 {
-		return "Starting GitHub Fleet…"
-	}
-	if m.showHelp {
-		return m.helpView()
-	}
-	if m.logMode {
-		return m.logView()
-	}
-	if m.commitCharts {
-		return m.commitChartsView()
-	}
-	if m.width < 90 {
-		return m.narrowView()
-	}
-	w, h := m.width, m.height
-	headerH, metricsH, footerH, gap := 2, 4, 1, 1
-	mainH := max(7, h-headerH-metricsH-footerH-2*gap)
-	leftW := int(float64(w) * 0.34)
-	if leftW < 42 {
-		leftW = 42
-	}
-	if leftW > w-55 {
-		leftW = w - 55
-	}
-	rightW := w - leftW - gap
-	activityH := (mainH - 1) * 68 / 100
-	if activityH < 5 {
-		activityH = 5
-	}
-	actionsH := mainH - activityH - 1
-	if actionsH < 4 {
-		actionsH = 4
-		activityH = mainH - actionsH - 1
-	}
-	head := m.renderHeader(w)
-	metrics := m.renderMetrics(w)
-	repoPanel := box(m.repoTitle(), m.renderRepos(leftW-2, mainH-2), leftW, mainH, m.focus == 0)
-	actPanel := box(m.activityTitle(), m.renderActivity(rightW-2, activityH-2), rightW, activityH, m.focus == 1)
-	actionsPanel := box(m.actionsTitle(), m.renderActions(rightW-2, actionsH-2), rightW, actionsH, m.focus == 2)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, repoPanel, strings.Repeat(" ", gap), lipgloss.JoinVertical(lipgloss.Left, actPanel, " ", actionsPanel))
-	return lipgloss.JoinVertical(lipgloss.Left, head, metrics, " ", body, m.renderFooter(w))
+	if m.width==0||m.height==0{return "Starting GitHub Fleet…"}
+	if m.showHelp{return m.helpView()};if m.logMode{return m.logView()};if m.commitCharts{return m.commitChartsView()}
+	if m.width<90{return m.narrowView()}
+	w,h:=m.width,m.height;headerH,metricsH,footerH,gap:=2,4,1,1
+	mainH:=max(7,h-headerH-metricsH-footerH-2*gap)
+	leftW:=int(float64(w)*0.57);if leftW<58{leftW=58};if leftW>w-45{leftW=w-45};rightW:=w-leftW-gap
+	ciH:=max(5,mainH*62/100);activityH:=mainH-ciH-1;if activityH<4{activityH=4;ciH=mainH-activityH-1}
+	head:=m.renderHeader(w);metrics:=m.renderMetrics(w)
+	repoPanel:=box(m.repoTitle(),m.renderRepos(leftW-2,mainH-2),leftW,mainH,m.focus==0)
+	ciPanel:=box(m.actionsTitle(),m.renderActions(rightW-2,ciH-2),rightW,ciH,m.focus==2)
+	activityPanel:=box(m.activityTitle(),m.renderActivity(rightW-2,activityH-2),rightW,activityH,m.focus==1)
+	right:=lipgloss.JoinVertical(lipgloss.Left,ciPanel," ",activityPanel)
+	body:=lipgloss.JoinHorizontal(lipgloss.Top,repoPanel,strings.Repeat(" ",gap),right)
+	return lipgloss.JoinVertical(lipgloss.Left,head,metrics," ",body,m.renderFooter(w))
 }
 
 func (m model) renderHeader(w int) string {
-	brand := titleStyle.Render("GH FLEET")
+	brand := titleStyle.Render("GH FLEET  /  AGENT OPERATIONS")
 	login := mutedStyle.Render("  " + m.login)
 	state := "SYNCING"
 	if m.busyRepos && len(m.repos) > 0 {
@@ -1459,7 +1431,7 @@ func (m model) renderHeader(w int) string {
 		status = badStyle.Render("● " + state)
 	}
 	left := brand + login
-	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" + mutedStyle.Render(fit("Repository health  /  branch-head activity  /  GitHub Actions", w))
+	return left + strings.Repeat(" ", max(1, w-width(left)-width(status))) + status + "\n" + mutedStyle.Render(fit("Fleet workload  /  agent attribution  /  CI pipeline control", w))
 }
 func metric(label, value, detail string, color lipgloss.Color, w int) string {
 	cw := max(14, w-2)
@@ -1995,120 +1967,39 @@ func intsToFloats(values []int) []float64 {
 	return out
 }
 
+type agentWorkload struct {
+	Name string
+	Commits24h,Commits7d,Running,Waiting int
+	Repos map[string]bool
+	Last time.Time
+}
+func collectAgentWorkload(repos []repository,now time.Time) []agentWorkload {
+	byActor:=map[string]*agentWorkload{}
+	get:=func(name string)*agentWorkload{if name==""{name="unknown"};if byActor[name]==nil{byActor[name]=&agentWorkload{Name:name,Repos:map[string]bool{}}};return byActor[name]}
+	for _,repo:=range repos{
+		seen:=map[string]bool{}
+		for _,item:=range repo.Commits{t:=parseTime(item.Date);if t.IsZero()||t.After(now)||now.Sub(t)>7*24*time.Hour{continue};key:=item.SHA;if key==""{key=item.Date+":"+item.Msg+":"+commitActor(item)};if seen[key]{continue};seen[key]=true
+			a:=get(commitActor(item));a.Commits7d++;if now.Sub(t)<=24*time.Hour{a.Commits24h++};a.Repos[repo.FullName]=true;if t.After(a.Last){a.Last=t}}
+		for _,item:=range repo.Runs{if !isActive(item){continue};a:=get(item.Actor.Login);if item.Status=="in_progress"{a.Running++};if queuedRun(item){a.Waiting++};a.Repos[repo.FullName]=true;if t:=parseTime(item.UpdatedAt);t.After(a.Last){a.Last=t}}
+	}
+	out:=make([]agentWorkload,0,len(byActor));for _,a:=range byActor{out=append(out,*a)}
+	sort.Slice(out,func(i,j int)bool{a,b:=out[i],out[j];as:=a.Commits7d+a.Running*10+a.Waiting*5;bs:=b.Commits7d+b.Running*10+b.Waiting*5;if as!=bs{return as>bs};return a.Name<b.Name})
+	return out
+}
 func (m model) commitChartsView() string {
-	w, h := m.width, m.height
-	if w < 70 || h < 16 {
-		return "Commit charts need a terminal at least 70 columns wide and 16 rows high.\nPress Esc to return."
-	}
-	now := time.Now().UTC()
-	period := m.commitPeriod
-	if period != 7 && period != 365 {
-		period = 24
-	}
-	periodLabel := "24 HOURS  /  HOURLY"
-	if period == 7 {
-		periodLabel = "7 DAYS  /  DAILY"
-	} else if period == 365 {
-		periodLabel = "1 YEAR  /  DAILY CALENDAR"
-	}
-	head := m.renderHeader(w)
-	selector := titleStyle.Render("REPOSITORY ACTIVITY") + "   "
-	for _, option := range []struct {
-		key, label string
-		period     int
-	}{{"1", "24H", 24}, {"2", "7D", 7}, {"3", "1Y", 365}} {
-		label := " " + option.key + " " + option.label + " "
-		if period == option.period {
-			selector += selectStyle.Render(label)
-		} else {
-			selector += mutedStyle.Render(label)
-		}
-	}
-	selector += "   " + mutedStyle.Render(periodLabel)
-
-	repos := m.chartRepos()
-	if len(repos) == 0 {
-		message := "No repositories available in this scope."
-		if period == 365 {
-			message = "No repository has commit activity in the last year."
-			if m.busyCommitHistory {
-				message = "Loading one-year commit history for active repositories…"
-			}
-		}
-		return lipgloss.JoinVertical(lipgloss.Left, head, selector, mutedStyle.Render(message), "Esc to return")
-	}
-	chartH := 4
-	cardH := chartH + 6
-	if period == 365 {
-		cardH = 10
-	}
-	visible := max(1, (h-7)/(cardH+3))
-	maxStart := max(0, len(repos)-visible)
-	startIndex := min(m.chartScroll, maxStart)
-	endIndex := min(len(repos), startIndex+visible)
-	chartW := max(48, w-10)
-	scaleMax := 1
-	if period != 365 {
-		for _, repo := range repos {
-			scaleMax = max(scaleMax, maxInt(repoCommitBuckets(*repo, now, period)))
-		}
-	}
-
-	var cards []string
-	for _, repo := range repos[startIndex:endIndex] {
-		values := repoCommitBuckets(*repo, now, period)
-		total := sumInts(values)
-		peak := maxInt(values)
-		active := 0
-		for _, value := range values {
-			if value > 0 {
-				active++
-			}
-		}
-		branch := repo.Default
-		if branch == "" {
-			branch = "default branch unavailable"
-		}
-		name := m.repoLabel(repo)
-		if name == "" {
-			name = repo.FullName
-		}
-		var content []string
-		if period == 365 {
-			total = repoYearTotal(*repo, now)
-			activeDays := len(repoYearDailyCounts(*repo, now))
-			meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(fmt.Sprintf("%d COMMITS", total)) +
-				mutedStyle.Render(fmt.Sprintf("   ACTIVE %d/365 DAYS   ·   %s", activeDays, fit(branch, 20)))
-			if repo.CommitHistoryDays < 365 {
-				meta += mutedStyle.Render("   ·   HISTORY SYNCING")
-			}
-			content = append(content, meta)
-			content = append(content, calendarHeatmapRows(*repo, now, 53)...)
-			content = append(content, calendarLegend())
-		} else {
-			status := fmt.Sprintf("%d COMMITS", total)
-			if repo.CommitsFetched.IsZero() {
-				status = "HISTORY LOADING"
-			}
-			meta := lipgloss.NewStyle().Foreground(ink).Bold(true).Render(status) +
-				mutedStyle.Render(fmt.Sprintf("   PEAK %d / BUCKET   ·   ACTIVE %d/%d BUCKETS   ·   %s", peak, active, len(values), fit(branch, 20)))
-			content = []string{meta, ""}
-			content = append(content, renderBarRows(values, chartW, chartH, period, scaleMax, now)...)
-		}
-		cards = append(cards, box(fmt.Sprintf("#%d  ◈  %s", startIndex+len(cards)+1, name), content, w, cardH+2, false))
-	}
-	if len(cards) == 0 {
-		cards = append(cards, mutedStyle.Render("No chart data available yet."))
-	}
-	body := lipgloss.JoinVertical(lipgloss.Left, joinWithSpaces(cards, 1)...)
-	footer := mutedStyle.Render(fmt.Sprintf("ACTIVE REPOSITORIES  %d–%d OF %d", startIndex+1, endIndex, len(repos))) +
-		"   ↑↓ / j k scroll   PgUp/PgDn page   1 24h   2 7d   3 1y   r refresh   Esc back"
-	if m.busyCommitHistory {
-		footer += activeStyle.Render("   · syncing")
-	} else if !m.lastCommitHistory.IsZero() {
-		footer += mutedStyle.Render("   · updated " + shortAge(m.lastCommitHistory.Format(time.RFC3339)) + " ago")
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, head, selector, body, footer)
+	w,h:=m.width,m.height;if w<70||h<12{return "Agent workload view needs a terminal at least 70 columns wide and 12 rows high.\nPress Esc to return."}
+	head:=m.renderHeader(w)
+	title:=titleStyle.Render("AGENT WORKLOAD · BY REPOSITORY")+mutedStyle.Render("   Commit authors + GitHub Actions actors · last 7 days")
+	rows:=collectAgentWorkload(m.repos,time.Now())
+	if m.detail{if r:=m.selectedRepo();r!=nil{filtered:=make([]agentWorkload,0,len(rows));for _,a:=range rows{if a.Repos[r.FullName]{filtered=append(filtered,a)}};rows=filtered}}
+	content:=[]string{mutedStyle.Render(fit("ACTOR / AGENT       COMMITS 24H / 7D     CI RUN / WAIT     REPOSITORIES                 LAST SEEN",w))}
+	room:=max(1,h-7);if len(rows)==0{content=append(content,mutedStyle.Render("No actor activity found in the last 7 days."))}
+	start:=min(m.chartScroll,max(0,len(rows)-room))
+	for i:=start;i<min(len(rows),start+room);i++{a:=rows[i];names:=make([]string,0,len(a.Repos));for name:=range a.Repos{names=append(names,shortName(name))};sort.Strings(names)
+		line:=titleStyle.Render(fit(a.Name,18))+" "+mutedStyle.Render(fmt.Sprintf("%5d / %-5d",a.Commits24h,a.Commits7d))+" "+activeStyle.Render(fmt.Sprintf("%3d / %-3d",a.Running,a.Waiting))+" "+fit(strings.Join(names,","),max(12,w-75))+" "+mutedStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
+		content=append(content,fit(line,w))}
+	footer:=mutedStyle.Render(fmt.Sprintf("ACTORS %d  ·  ↑↓ / j k scroll  PgUp/PgDn page  Esc back",len(rows)))
+	return lipgloss.JoinVertical(lipgloss.Left,head,title,strings.Join(content,"\n"),footer)
 }
 
 func (m model) renderActivity(w,h int) []string {
@@ -2173,7 +2064,7 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ move  Tab section  c commit charts  Enter detail/log  / filter  r refresh  ? help  q quit"
+	left := "↑↓ move  Tab section  c agent workload  Enter detail/log  / filter  r refresh  ? help  q quit"
 	if m.filtering {
 		left = "FILTER: " + m.filter + "_   type to search  Enter accept  Esc clear"
 	}
@@ -2228,7 +2119,7 @@ func (m model) narrowView() string {
 		return "Enlarge terminal to at least 90 columns for the dashboard."
 	}
 	head := m.renderHeader(w)
-	tabs := []string{"1 Repositories", "2 Activity", "3 Actions"}
+	tabs := []string{"1 Repositories", "2 Agent work", "3 CI queue"}
 	var tabLine string
 	for i, t := range tabs {
 		if i == m.focus {
@@ -2260,8 +2151,31 @@ func (m model) narrowView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, head, tabLine, box(panelTitle, content, w, contentH+2, true), m.renderFooter(w))
 }
 func (m model) helpView() string {
-	lines := []string{"A compact account-wide view. Repository names appear without repeating the account owner.", "", "NAVIGATION", "  Tab / Shift+Tab     Focus repositories, activity, or Actions", "  ↑ / ↓ or j / k     Move in the focused section", "  c                   Expand the repository commit charts", "  1 / 2               Switch charts between 24-hour and 7-day ranges", "  Enter               Scope the dashboard to a repository / open selected run log", "  Esc                 Return from repository or log detail", "  /                   Filter repository names; type to search, Backspace edits", "", "ACTIONS", "  r                   Refresh repository and Actions data", "  o                   Open selected repository or run in browser", "  l / Enter on run    Open its logs; while open, polling follows only that run", "  w                   Pause or resume live log refresh (15 seconds)", "  u                   Refresh the current log immediately", "  ?                   Close help     q: quit", "", "DATA + NETWORK", "  Branch heads, open PRs and issues share one GraphQL request. Actions uses", "  conditional requests. All data remains visible from local cache during outages.", "  The account snapshot refreshes every 3 minutes; Actions every 60 seconds.", "  In repository detail, that repo refreshes every 20 seconds."}
-	return box("HELP", lines, m.width-4, m.height-2, true)
+	lines:=[]string{
+		"An operations cockpit for agent work across every accessible repository.","",
+		"NAVIGATION",
+		"  Tab / Shift+Tab     Focus repository workload, agent work, or CI queue",
+		"  ↑ / ↓ or j / k     Move through repositories, commits, and pipelines",
+		"  c                   Open the agent-by-repository workload view",
+		"  Enter               Scope to a repository / open selected CI logs",
+		"  Esc                 Return from repository or log detail",
+		"  /                   Filter repository names","",
+		"CI OPERATIONS",
+		"  RUNNING              GitHub Actions workflow is in progress",
+		"  WAITING              Workflow is queued, waiting, requested, or pending",
+		"  FAIL                 Workflow completed with a failure in the last 24h",
+		"  r                    Refresh repository and Actions data",
+		"  o                    Open selected repository or workflow in browser",
+		"  l / Enter on run     Open its logs; w toggles live log polling",
+		"  u                    Refresh the current log immediately","",
+		"ATTRIBUTION + DATA",
+		"  Commit authors use GitHub login where available.",
+		"  Actions actors identify who triggered a workflow; this is not an agent heartbeat.",
+		"  Commit activity currently covers each default branch.",
+		"  Repositories refresh every 3 minutes; Actions and commits every 60 seconds.",
+		"  Cached data remains visible during API outages.",
+	}
+	return box("HELP",lines,m.width-4,m.height-2,true)
 }
 
 func main() {
