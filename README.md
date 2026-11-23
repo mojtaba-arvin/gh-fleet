@@ -58,7 +58,7 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 
 ## Color, motion, and accessibility
 
-The interface uses semantic colors: green for success, rose for failure, amber for waiting, cyan/blue for focus, and violet for branch context. Critical states always include text or symbols; color is not the only signal. A compact spinner appears only while an operation is active and stops when the UI is idle. Set `GH_FLEET_NO_ANIMATION=1` to disable motion. `TERM=dumb` also disables it, and terminal color preferences including `NO_COLOR` are respected.
+The interface uses a dark, high-contrast operator palette with distinct colors for repository names, workload numbers, trends, contributors, branch counts, PR counts, and CI states. Green means success, rose means failure, amber means waiting, cyan means primary context, blue means numeric workload, violet means trends/branches, teal means active branch counts, and magenta means contributors. Selected rows use a full-width background across every visible cell and continuation line. Every chart is rendered as terminal text (sparklines, bars, and heatmaps), not as an image, so labels and values remain selectable and copyable in terminal emulators. Critical states always include text or symbols; color is not the only signal. A compact spinner appears only while an operation is active and stops when the UI is idle. Set `GH_FLEET_NO_ANIMATION=1` to disable motion. `TERM=dumb` also disables it, and terminal color preferences including `NO_COLOR` are respected.
 
 ## Controls
 
@@ -78,7 +78,9 @@ The interface uses semantic colors: green for success, rose for failure, amber f
 | / | Filter repositories |
 | w | Pause or resume live log refresh |
 | u | Refresh selected workflow logs now |
-| r | Refresh repository and Actions data |
+| r | Refresh repository and Actions data using normal freshness/ETag behavior |
+| R | Force refresh and bypass cached ETags |
+| C | Clear the local disk cache and fetch a fresh snapshot |
 | o | Open the selected GitHub page in a browser |
 | ? | Show help |
 | q | Quit |
@@ -93,7 +95,7 @@ The interface uses semantic colors: green for success, rose for failure, amber f
 - Actions requests use ETags when GitHub provides them. Failed requests use exponential backoff and cached data remains visible.
 - The account overview reads up to 100 branch heads per repository and paginates when needed. Diagnostic activity counts deduplicate commits by SHA across branches.
 
-Press `r` for an immediate refresh. For multi-machine, near-real-time agent status, use an authenticated event relay; a GitHub-only terminal client cannot observe work that has not produced a GitHub event.
+Press `r` for an immediate refresh, `R` to bypass cached ETags, or `C` to remove the persisted local snapshot and fetch a fresh one. Clearing the cache keeps the currently rendered snapshot visible until the replacement fetch succeeds. For multi-machine, near-real-time agent status, use an authenticated event relay; a GitHub-only terminal client cannot observe work that has not produced a GitHub event.
 
 ## Agent runtime telemetry (optional)
 

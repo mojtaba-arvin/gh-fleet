@@ -979,6 +979,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if msg.String() == "R" {
+			return m, tea.Batch(m.refreshAll(true)...)
+		}
+		if msg.String() == "C" {
+			return m, tea.Batch(m.clearCacheAndRefresh()...)
+		}
 		if m.logMode {
 			switch msg.String() {
 			case "esc", "backspace":
@@ -1131,28 +1137,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "r":
-			if m.detail {
-				if r := m.selectedRepo(); r != nil {
-					m.lastErr = "Refreshing " + m.repoLabel(r) + "…"
-					delete(m.retryAt, "runs:"+r.FullName)
-					delete(m.retryAt, "branches:"+r.FullName)
-					m.queueRun(r.FullName, true)
-					cmds := m.drainRunQueue()
-					if len(cmds) > 0 {
-						return m, tea.Batch(cmds...)
-					}
-					return m, nil
-				}
-			}
-			m.lastErr = "Refreshing GitHub…"
-			delete(m.retryAt, "repos")
-			m.busyRepos = true
-			for _, r := range m.repos {
-				delete(m.retryAt, "runs:"+r.FullName)
-				delete(m.retryAt, "branches:"+r.FullName)
-				m.queueRun(r.FullName, false)
-			}
-			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), m.animationCmdIfNeeded())...)
+			return m, tea.Batch(m.refreshAll(false)...)
 		case "/":
 			m.focus = 1
 			m.filtering = true
@@ -1445,6 +1430,59 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// refreshAll bypasses the normal refresh schedule. A forced refresh clears ETags
+// so GitHub returns fresh representations instead of responding with HTTP 304.
+func (m *model) refreshAll(force bool) []tea.Cmd {
+	if m.busyRepos {
+		m.lastErr = "Repository refresh already in progress; keeping the current snapshot"
+		return nil
+	}
+	if force {
+		m.api.mu.Lock()
+		m.api.etags = make(map[string]string)
+		m.api.cache = make(map[string][]run)
+		m.api.mu.Unlock()
+	}
+	m.lastErr = "Refreshing GitHub snapshot…"
+	if force {
+		m.lastErr = "Force-refreshing GitHub snapshot…"
+	}
+	delete(m.retryAt, "repos")
+	m.busyRepos = true
+	for _, repo := range m.repos {
+		delete(m.retryAt, "runs:"+repo.FullName)
+		delete(m.retryAt, "branches:"+repo.FullName)
+		m.queueRun(repo.FullName, false)
+	}
+	cmds := []tea.Cmd{fetchReposCmd(m.api)}
+	cmds = append(cmds, m.drainRunQueue()...)
+	if cmd := m.animationCmdIfNeeded(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return cmds
+}
+
+// clearCacheAndRefresh removes the on-disk snapshot and ETags while retaining
+// the currently rendered data until a replacement snapshot has been fetched.
+func (m *model) clearCacheAndRefresh() []tea.Cmd {
+	if m.busyRepos {
+		m.lastErr = "Repository refresh already in progress; cache was not cleared"
+		return nil
+	}
+	if m.cachePath != "" {
+		if err := os.Remove(m.cachePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			m.lastErr = "Could not clear cache: " + err.Error()
+			return nil
+		}
+	}
+	m.api.mu.Lock()
+	m.api.etags = make(map[string]string)
+	m.api.cache = make(map[string][]run)
+	m.api.mu.Unlock()
+	m.lastErr = "Local cache cleared; fetching a fresh GitHub snapshot…"
+	return m.refreshAll(true)
 }
 
 func (m *model) logScroll(n int) {
@@ -1781,24 +1819,33 @@ func commits(repos []repository, scope string) []commitActivity {
 }
 
 var (
-	ink         = lipgloss.Color("#e6edf7")
-	muted       = lipgloss.Color("#8793a8")
-	panelBorder = lipgloss.Color("#35445d")
-	cyan        = lipgloss.Color("#67e8f9")
-	green       = lipgloss.Color("#4ade80")
-	red         = lipgloss.Color("#fb7185")
-	yellow      = lipgloss.Color("#fbbf24")
-	purple      = lipgloss.Color("#c4b5fd")
-	blue        = lipgloss.Color("#60a5fa")
-	selectedBG  = lipgloss.Color("#1e3350")
-	titleStyle  = lipgloss.NewStyle().Foreground(cyan).Bold(true)
-	brandStyle  = lipgloss.NewStyle().Foreground(blue).Bold(true)
-	mutedStyle  = lipgloss.NewStyle().Foreground(muted)
-	goodStyle   = lipgloss.NewStyle().Foreground(green)
-	badStyle    = lipgloss.NewStyle().Foreground(red).Bold(true)
-	activeStyle = lipgloss.NewStyle().Foreground(yellow).Bold(true)
-	branchStyle = lipgloss.NewStyle().Foreground(purple)
-	selectStyle = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
+	ink             = lipgloss.Color("#e6edf7")
+	muted           = lipgloss.Color("#8793a8")
+	panelBorder     = lipgloss.Color("#26384f")
+	cyan            = lipgloss.Color("#67e8f9")
+	green           = lipgloss.Color("#4ade80")
+	red             = lipgloss.Color("#fb7185")
+	yellow          = lipgloss.Color("#fbbf24")
+	purple          = lipgloss.Color("#c4b5fd")
+	blue            = lipgloss.Color("#60a5fa")
+	magenta         = lipgloss.Color("#f472b6")
+	teal            = lipgloss.Color("#2dd4bf")
+	selectedBG      = lipgloss.Color("#12364a")
+	titleStyle      = lipgloss.NewStyle().Foreground(cyan).Bold(true)
+	brandStyle      = lipgloss.NewStyle().Foreground(blue).Bold(true)
+	mutedStyle      = lipgloss.NewStyle().Foreground(muted)
+	goodStyle       = lipgloss.NewStyle().Foreground(green)
+	badStyle        = lipgloss.NewStyle().Foreground(red).Bold(true)
+	activeStyle     = lipgloss.NewStyle().Foreground(yellow).Bold(true)
+	branchStyle     = lipgloss.NewStyle().Foreground(purple)
+	numberStyle     = lipgloss.NewStyle().Foreground(blue)
+	trendStyle      = lipgloss.NewStyle().Foreground(purple)
+	peopleStyle     = lipgloss.NewStyle().Foreground(magenta)
+	branchDataStyle = lipgloss.NewStyle().Foreground(teal)
+	bodyStyle       = lipgloss.NewStyle().Foreground(ink)
+	timeStyle       = lipgloss.NewStyle().Foreground(blue)
+	actionStyle     = lipgloss.NewStyle().Foreground(teal).Bold(true)
+	selectStyle     = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
 )
 
 func openURL(raw string) error {
@@ -1819,6 +1866,12 @@ func openURL(raw string) error {
 }
 
 func width(s string) int { return lipgloss.Width(s) }
+
+// selectedRow paints the full terminal row, including trailing blank cells.
+func selectedRow(s string, w int) string {
+	return selectStyle.Width(w).Render(fit(s, w))
+}
+
 func fit(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -2092,15 +2145,17 @@ func (m model) renderAttentionRows(w, h int) []string {
 		for i := start; i < len(items) && len(rows) < h; i++ {
 			item := items[i]
 			line := attentionStyle(item.Kind).Render(item.Kind) + "  " +
-				titleStyle.Render(shortName(item.Repo)) + mutedStyle.Render(" · "+ageLabel(item.Age))
+				titleStyle.Render(shortName(item.Repo)) + timeStyle.Render(" · "+ageLabel(item.Age))
+			if i == m.attentionCursor && m.overviewPane == 0 {
+				line = selectedRow(line, w)
+			}
 			rows = append(rows, fit(line, w))
 			if len(rows) < h {
 				detail := item.Subject + " → " + item.Next
 				if i == m.attentionCursor && m.overviewPane == 0 {
-					rows = append(rows, selectStyle.Width(w).Render(fit(detail, w)))
-				} else {
-					rows = append(rows, fit(detail, w))
+					detail = selectedRow(detail, w)
 				}
+				rows = append(rows, fit(detail, w))
 			}
 		}
 		if len(items) == 0 {
@@ -2138,9 +2193,9 @@ func (m model) renderAttentionRows(w, h int) []string {
 		subjectWidth := max(8, w-kindWidth-repoWidth-nextWidth-ageWidth-6)
 		line := attentionStyle(item.Kind).Render(fit(item.Kind, kindWidth)) + " " +
 			titleStyle.Render(fit(repoName, repoWidth)) + " " +
-			mutedStyle.Render(fit(item.Subject, subjectWidth)) + " " +
-			mutedStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
-			mutedStyle.Render(fit(item.Next, nextWidth))
+			bodyStyle.Render(fit(item.Subject, subjectWidth)) + " " +
+			timeStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
+			actionStyle.Render(fit(item.Next, nextWidth))
 		if i == m.attentionCursor && m.overviewPane == 0 {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
@@ -2237,7 +2292,7 @@ func (m model) renderInFlightRows(w, h int) []string {
 			}
 			line := fit(label, w)
 			if i == selected && m.overviewPane == 1 {
-				line = selectStyle.Width(w).Render(line)
+				line = selectedRow(line, w)
 			}
 			rows = append(rows, line)
 		}
@@ -2261,10 +2316,10 @@ func (m model) renderInFlightRows(w, h int) []string {
 		}
 		line := style.Render(fit(item.Kind, 16)) + " " +
 			titleStyle.Render(fit(shortName(item.Repo), max(10, w/4))) + " " +
-			fit(item.Subject, max(8, w/2)) + " " +
-			mutedStyle.Render(ageLabel(item.Age))
+			bodyStyle.Render(fit(item.Subject, max(8, w/2))) + " " +
+			timeStyle.Render(ageLabel(item.Age))
 		if item.Detail != "" {
-			line += mutedStyle.Render(" · " + item.Detail)
+			line += branchDataStyle.Render(" · " + item.Detail)
 		}
 		line = fit(line, w)
 		if i == selected && m.overviewPane == 1 {
@@ -2284,26 +2339,27 @@ func (m model) overviewView() string {
 	tabs := m.renderTabs(w)
 	summary := m.renderOverviewSummary()
 	footer := m.renderFooter(w)
+	ciChart := m.renderCIHealthChart(w)
 	if w >= 108 && h >= 17 {
-		bodyH := max(5, h-6)
+		bodyH := max(5, h-7)
 		gap := 1
 		leftW := int(float64(w) * 0.61)
 		rightW := w - leftW - gap
 		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
 		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
 		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", body, footer)
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", body, footer)
 	}
-	bodyH := max(3, h-6)
+	bodyH := max(3, h-7)
 	if bodyH < 7 {
 		attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, true)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", attention, footer)
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, footer)
 	}
 	attentionH := max(3, (bodyH-1)*2/3)
 	waitH := bodyH - attentionH - 1
 	attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
 	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, m.overviewPane == 1)
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, " ", attention, waiting, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, footer)
 }
 
 func repoPortfolioState(repo repository, now time.Time) string {
@@ -2340,11 +2396,12 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		for i, repo := range repos {
 			state := repoPortfolioState(*repo, time.Now())
 			line := titleStyle.Render(shortName(repo.FullName)) + "  " + repoStateStyle(state).Render(state)
+			detail := fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo))
 			if i == m.cursor {
-				line = selectStyle.Width(w).Render(fit(line, w))
+				line = selectedRow(line, w)
+				detail = selectedRow(detail, w)
 			}
-			rows = append(rows, fit(line, w))
-			rows = append(rows, fit(fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo)), w))
+			rows = append(rows, fit(line, w), fit(detail, w))
 		}
 		if len(repos) == 0 {
 			rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter."))
@@ -2376,9 +2433,9 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		state := repoPortfolioState(*repo, time.Now())
 		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
 			repoStateStyle(state).Render(fit(state, statusW)) + " " +
-			mutedStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
-			mutedStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
-			mutedStyle.Render(fit(lastPush, 10)) + " " +
+			activeStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
+			peopleStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
+			timeStyle.Render(fit(lastPush, 10)) + " " +
 			ciStyle(ci).Render(fit(ci, restW))
 		if i == m.cursor {
 			line = selectStyle.Width(w).Render(fit(line, w))
@@ -2431,6 +2488,19 @@ func pullRequestReviewText(pr pullRequestSummary) string {
 	}
 }
 
+func prReviewStyle(pr pullRequestSummary) lipgloss.Style {
+	switch {
+	case pr.MergeStateStatus == "DIRTY", pr.ReviewDecision == "CHANGES_REQUESTED":
+		return badStyle
+	case pr.ReviewDecision == "APPROVED":
+		return goodStyle
+	case pr.IsDraft:
+		return mutedStyle
+	default:
+		return activeStyle
+	}
+}
+
 func (m model) repoDetailView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
@@ -2444,8 +2514,11 @@ func (m model) repoDetailView() string {
 	prStart := max(0, min(m.prCursor-prCapacity/2, max(0, len(repo.PullRequests)-prCapacity)))
 	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
-		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch "+fallback(repo.Default, "unknown")),
-		mutedStyle.Render(fmt.Sprintf("Open PRs %d  ·  Open issues %d  ·  Branches %d  ·  Last push %s", repo.PRs, repo.Issues, repo.BranchN, fallback(shortAge(repo.PushedAt), "—"))),
+		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch ") + branchDataStyle.Render(fallback(repo.Default, "unknown")),
+		titleStyle.Render("OPEN PRs ") + activeStyle.Render(strconv.Itoa(repo.PRs)) +
+			mutedStyle.Render("  ·  OPEN ISSUES ") + peopleStyle.Render(strconv.Itoa(repo.Issues)) +
+			mutedStyle.Render("  ·  BRANCHES ") + branchDataStyle.Render(strconv.Itoa(repo.BranchN)) +
+			mutedStyle.Render("  ·  LAST PUSH ") + timeStyle.Render(fallback(shortAge(repo.PushedAt), "—")),
 		"",
 		titleStyle.Render("OPEN PULL REQUESTS  ·  ↑↓ SELECT  ·  ENTER / o OPEN"),
 	}
@@ -2454,7 +2527,10 @@ func (m model) repoDetailView() string {
 	}
 	for i := prStart; i < prEnd; i++ {
 		pr := repo.PullRequests[i]
-		line := fmt.Sprintf("#%-5d %s  ·  %s  ·  %s ago", pr.Number, pr.Title, pullRequestReviewText(pr), shortAge(pr.UpdatedAt))
+		line := numberStyle.Render(fmt.Sprintf("#%-5d", pr.Number)) + " " +
+			bodyStyle.Render(pr.Title) + "  " +
+			prReviewStyle(pr).Render(pullRequestReviewText(pr)) + "  " +
+			timeStyle.Render(shortAge(pr.UpdatedAt)+" ago")
 		if i == m.prCursor {
 			content = append(content, selectStyle.Width(w-2).Render(fit(line, w-2)))
 		} else {
@@ -2472,7 +2548,7 @@ func (m model) repoDetailView() string {
 			if label == "" {
 				label = item.Title
 			}
-			content = append(content, fit(stateStyle(item).Render(stateText(item))+"  "+label+"  ·  "+fallback(item.Branch, "branch unknown")+"  ·  "+shortAge(item.UpdatedAt)+" ago", w-2))
+			content = append(content, fit(stateStyle(item).Render(stateText(item))+"  "+bodyStyle.Render(label)+"  "+branchDataStyle.Render(fallback(item.Branch, "branch unknown"))+"  "+timeStyle.Render(shortAge(item.UpdatedAt)+" ago"), w-2))
 			ciShown++
 			if ciShown >= 2 || len(content) >= innerRows {
 				break
@@ -2489,12 +2565,64 @@ func (m model) repoDetailView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, panel, m.renderFooter(w))
 }
 
+func (m model) renderCIHealthChart(w int) string {
+	var passed, failed, running, waiting int
+	for _, repo := range m.repos {
+		for _, item := range repo.Runs {
+			switch runState(item) {
+			case "success":
+				passed++
+			case "failure", "startup_failure", "action_required":
+				failed++
+			case "in_progress":
+				running++
+			case "queued", "waiting", "requested", "pending":
+				waiting++
+			}
+		}
+	}
+	total := passed + failed + running + waiting
+	if total == 0 {
+		return mutedStyle.Render(fit("CI SIGNAL // waiting for workflow samples", w))
+	}
+	counts := []int{passed, failed, running, waiting}
+	styles := []lipgloss.Style{goodStyle, badStyle, activeStyle, branchStyle}
+	if w < 70 {
+		label := fmt.Sprintf("CI P%d F%d R%d W%d ", passed, failed, running, waiting)
+		barWidth := max(4, min(12, w-width(label)-1))
+		var bar strings.Builder
+		for i, count := range counts {
+			segments := 0
+			if count > 0 {
+				segments = max(1, count*barWidth/total)
+			}
+			bar.WriteString(styles[i].Render(strings.Repeat("█", segments)))
+		}
+		return fit(label+bar.String(), w)
+	}
+	legend := goodStyle.Render(fmt.Sprintf(" PASS %d ", passed)) +
+		badStyle.Render(fmt.Sprintf(" FAIL %d ", failed)) +
+		activeStyle.Render(fmt.Sprintf(" RUN %d ", running)) +
+		branchStyle.Render(fmt.Sprintf(" WAIT %d ", waiting))
+	prefix := mutedStyle.Render("CI SIGNAL // loaded sample  ")
+	barWidth := max(4, min(36, w-width(prefix)-width(legend)-2))
+	var bar strings.Builder
+	for i, count := range counts {
+		segments := 0
+		if count > 0 {
+			segments = max(1, count*barWidth/total)
+		}
+		bar.WriteString(styles[i].Render(strings.Repeat("█", segments)))
+	}
+	return fit(prefix+bar.String()+"  "+legend, w)
+}
+
 func (m model) ciQueueView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
-	bodyH := max(5, h-6)
+	bodyH := max(5, h-7)
 	body := box(fmt.Sprintf("CI QUEUE · %d RUNNING · %d QUEUED", m.runningCI(), m.queuedCI()), m.renderActions(w-2, bodyH-2), w, bodyH, true)
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, body, m.renderFooter(w))
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, m.renderCIHealthChart(w), body, m.renderFooter(w))
 }
 
 func fallback(value, otherwise string) string {
@@ -2754,14 +2882,14 @@ func (m model) renderRepos(w, h int) []string {
 		}
 		ci := repoCI(*r)
 		line := titleStyle.Render(fit(m.repoLabel(r), nameW)) + " " +
-			mutedStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
-			branchStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
-			mutedStyle.Render(fit(approx+countFmt(len(work.Actors)), peopleW)) + " " +
-			mutedStyle.Render(fit(countFmt(work.ActiveBranches7d), branchW)) + " " +
+			numberStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
+			trendStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
+			peopleStyle.Render(fit(approx+countFmt(len(work.Actors)), peopleW)) + " " +
+			branchDataStyle.Render(fit(countFmt(work.ActiveBranches7d), branchW)) + " " +
 			ciStyle(ci).Render(fit(ci, ciW)) + " " +
-			mutedStyle.Render(fit(countFmt(r.PRs), prW))
+			activeStyle.Render(fit(countFmt(r.PRs), prW))
 		if i == m.cursor {
-			line = selectStyle.Width(w).Render(fit(line, w))
+			line = selectedRow(line, w)
 		}
 		content = append(content, fit(line, w))
 	}
@@ -3403,7 +3531,10 @@ func (m model) agentWorkloadView() string {
 			names = append(names, shortName(name))
 		}
 		sort.Strings(names)
-		line := titleStyle.Render(fit(a.Name, 18)) + " " + mutedStyle.Render(fmt.Sprintf("%5d / %-5d", a.Commits24h, a.Commits7d)) + " " + activeStyle.Render(fmt.Sprintf("%3d / %-3d", a.Running, a.Waiting)) + " " + fit(strings.Join(names, ","), max(12, w-75)) + " " + mutedStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
+		line := titleStyle.Render(fit(a.Name, 18)) + " " + numberStyle.Render(fmt.Sprintf("%5d / %-5d", a.Commits24h, a.Commits7d)) + " " + activeStyle.Render(fmt.Sprintf("%3d / %-3d", a.Running, a.Waiting)) + " " + branchDataStyle.Render(fit(strings.Join(names, ","), max(12, w-75))) + " " + timeStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
+		if i == start {
+			line = selectedRow(line, w)
+		}
 		content = append(content, fit(line, w))
 	}
 	footer := mutedStyle.Render(fmt.Sprintf("IDENTITIES %d  ·  not verified agent identities  ·  ↑↓ scroll  r refresh  Esc back", len(rows)))
@@ -3447,7 +3578,7 @@ func (m model) renderActivity(w, h int) []string {
 		if actor == "" {
 			actor = "unknown"
 		}
-		first := titleStyle.Render(fit(m.repoLabelByName(item.Repo), max(8, w/4))) + " " + branchStyle.Render(fit(item.Branch, max(8, w/4))) + " " + mutedStyle.Render(fit(actor, max(8, w/4))) + " " + mutedStyle.Render(shortAge(item.Commit.Date))
+		first := titleStyle.Render(fit(m.repoLabelByName(item.Repo), max(8, w/4))) + " " + branchStyle.Render(fit(item.Branch, max(8, w/4))) + " " + peopleStyle.Render(fit(actor, max(8, w/4))) + " " + timeStyle.Render(shortAge(item.Commit.Date))
 		second := mutedStyle.Render("  " + item.Commit.Msg)
 		content = append(content, fit(first, w), fit(second, w))
 	}
@@ -3482,10 +3613,13 @@ func (m model) renderActions(w, h int) []string {
 		if branch == "" {
 			branch = "—"
 		}
-		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + fit(workflow, max(8, w-25))
-		second := mutedStyle.Render("  " + fit(branch, max(8, w-36)) + " · trigger: " + fit(actor, 10) + " · " + shortAge(ref.item.UpdatedAt))
+		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + bodyStyle.Render(fit(workflow, max(8, w-25)))
+		second := branchDataStyle.Render("  "+fit(branch, max(8, w-36))) + " " +
+			peopleStyle.Render("· trigger: "+fit(actor, 10)) + " " +
+			timeStyle.Render("· "+shortAge(ref.item.UpdatedAt))
 		if i == m.runCursor {
-			first = selectStyle.Width(w).Render(fit(first, w))
+			first = selectedRow(first, w)
+			second = selectedRow(second, w)
 		}
 		content = append(content, fit(first, w), fit(second, w))
 	}
@@ -3543,37 +3677,37 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ select · ←/→ queues · Enter open · l logs · 1–3 views · ? help · q quit"
+	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
 		if m.overviewPane == 0 {
-			left = "↑↓ attention · → in flight · Enter open · l logs · 1–3 views · ? help"
+			left = "↑↓ attention · → in flight · Enter open · l logs · r refresh · R force · C cache"
 		} else {
-			left = "↑↓ in flight · ← attention · Enter open · l logs · o browser · 1–3 views · ? help"
+			left = "↑↓ in flight · ← attention · Enter open · l logs · r refresh · R force · C cache"
 		}
 	case 1:
-		left = "↑↓ repos · Enter detail · / filter · o browser · r refresh · 1–3 views · ? help"
+		left = "↑↓ repos · Enter detail · / filter · r refresh · R force · C clear cache · o browser"
 		if m.detail {
-			left = "↑↓ PRs · Enter/o open · Esc portfolio · r refresh · ? help"
+			left = "↑↓ PRs · Enter/o open · r refresh · R force · C cache · Esc back"
 		}
 	case 2:
-		left = "↑↓ runs · Enter/l logs · o browser · r refresh · ? help · q quit"
+		left = "↑↓ runs · Enter/l logs · o browser · r refresh · R force · C clear cache · q quit"
 	}
 	if w < 70 {
 		switch m.focus {
 		case 0:
 			if m.overviewPane == 0 {
-				left = "↑↓ attention · → waiting · Enter open · ? help"
+				left = "↑↓ attention · → waiting · r refresh · R force · C cache"
 			} else {
-				left = "↑↓ waiting · ← attention · Enter open · l logs · ? help"
+				left = "↑↓ waiting · ← attention · Enter open · r/R/C refresh"
 			}
 		case 1:
-			left = "↑↓ select · Enter detail/open · Esc back"
+			left = "↑↓ select · Enter detail · r/R/C refresh · Esc"
 			if m.detail {
-				left = "↑↓ PRs · Enter open · Esc back"
+				left = "↑↓ PRs · Enter open · r/R/C refresh · Esc"
 			}
 		case 2:
-			left = "↑↓ runs · Enter logs · Esc back"
+			left = "↑↓ runs · Enter logs · r/R/C refresh · Esc"
 		}
 	}
 	if m.filtering {
@@ -3620,7 +3754,7 @@ func (m model) logView() string {
 	for len(body) < maxLines {
 		body = append(body, "")
 	}
-	footer := "u refresh now  w toggle live polling  ↑↓/PgUp/PgDn scroll  Esc back"
+	footer := "u refresh logs  w live polling  R force data  C clear cache  ↑↓/PgUp/PgDn scroll  Esc back"
 	if m.logBusy {
 		footer = activeStyle.Render("Fetching latest logs…  " + footer)
 	} else if m.logErr != "" {
@@ -3646,7 +3780,9 @@ func (m model) helpView() string {
 		"  RUNNING              GitHub Actions workflow is in progress",
 		"  QUEUED               Workflow is waiting for a runner",
 		"  FAILED               Workflow completed with a failure in the last 24h",
-		"  r                    Refresh repository and Actions data",
+		"  r                    Refresh repository and Actions data (conditional)",
+		"  R                    Force refresh; bypass cached ETags",
+		"  C                    Clear local cache and force a fresh snapshot",
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"SOURCES + FRESHNESS",
@@ -3655,6 +3791,7 @@ func (m model) helpView() string {
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
 		"  Cached data remains visible during API outages; stale data is labelled.",
+		"  r refreshes; R bypasses ETags; C clears local cache and refreshes.",
 		"  Agent events are read-only from --agent-events or GH_FLEET_AGENT_EVENTS.",
 		"  Agent telemetry is not written to the GitHub metadata cache.",
 	}
