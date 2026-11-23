@@ -27,7 +27,7 @@ func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"DELIVERY OPERATIONS", "NEEDS ATTENTION", "CI FAILED", "CHANGES REQUESTED", "IN FLIGHT / WAITING"} {
+	for _, want := range []string{"DELIVERY OPERATIONS", "REPOSITORY HEALTH", "CI FAILED", "CHANGES REQUESTED", "IN FLIGHT / WAITING"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
 		}
@@ -54,7 +54,7 @@ func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"Overview", "Repositories", "CI queue", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW", "reviewer-a"} {
+	for _, want := range []string{"Overview", "Repositories", "CI queue", "REPOSITORY HEALTH", "IN FLIGHT / WAITING", "REVIEW", "reviewer-a"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("narrow operator dashboard does not contain %q:\n%s", want, view)
 		}
@@ -468,7 +468,7 @@ func TestOverviewDefaultsToHumanActionQueues(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "NEEDS ATTENTION", "IN FLIGHT / WAITING", "REVIEW NEEDED"} {
+	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "REPOSITORY HEALTH", "IN FLIGHT / WAITING", "REVIEW NEEDED"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
 		}
@@ -521,7 +521,7 @@ func TestOverviewResponsiveLayoutAtEightyColumns(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{width: 80, height: 24, lastRepos: now, repos: []repository{{FullName: "acme/api", Name: "api"}}}
 	view := m.View()
-	for _, want := range []string{"Overview", "Repositories", "CI queue", "NEEDS ATTENTION"} {
+	for _, want := range []string{"Overview", "Repositories", "CI queue", "REPOSITORY HEALTH"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("80-column overview missing %q:\n%s", want, view)
 		}
@@ -582,7 +582,7 @@ func TestRepositoryDetailShowsSelectablePullRequests(t *testing.T) {
 func TestCompactOverviewKeepsGitHubStateWithoutExternalSourceNag(t *testing.T) {
 	m := model{width: 40, height: 14, focus: 0}
 	view := m.View()
-	for _, want := range []string{"ATT 0", "NEEDS ATTENTION"} {
+	for _, want := range []string{"ATT 0", "REPOSITORY HEALTH"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("40-column overview missing %q:\n%s", want, view)
 		}
@@ -633,5 +633,51 @@ func TestBusyHeaderUsesMotionOnlyWhenEnabled(t *testing.T) {
 	}
 	if cmd := m.animationCmdIfNeeded(); cmd != nil {
 		t.Fatal("motion-disabled model scheduled an animation timer")
+	}
+}
+
+
+func TestRepositoryPortfolioGroupsByCIAndPushRecency(t *testing.T) {
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		repo repository
+		want int
+	}{
+		{name: "running CI outranks stale push", repo: repository{PushedAt: now.Add(-45*24*time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}}, want: 0},
+		{name: "queued CI outranks recent push", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "queued"}}}, want: 1},
+		{name: "fresh push", repo: repository{PushedAt: now.Add(-2*time.Hour).Format(time.RFC3339)}, want: 2},
+		{name: "weekly activity", repo: repository{PushedAt: now.Add(-3*24*time.Hour).Format(time.RFC3339)}, want: 3},
+		{name: "quiet", repo: repository{PushedAt: now.Add(-14*24*time.Hour).Format(time.RFC3339)}, want: 4},
+		{name: "dormant", repo: repository{PushedAt: now.Add(-45*24*time.Hour).Format(time.RFC3339)}, want: 5},
+		{name: "unknown push", repo: repository{}, want: 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := repoGroupRank(tc.repo, now); got != tc.want { t.Fatalf("group rank = %d, want %d", got, tc.want) }
+		})
+	}
+}
+
+func TestRepositoryHealthPanelShowsPushAgeAndCIIndependently(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{width: 120, cursor: 0, repos: []repository{
+		{FullName: "acme/active", Name: "active", PushedAt: now.Add(-2*time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}},
+		{FullName: "acme/dormant", Name: "dormant", PushedAt: now.Add(-45*24*time.Hour).Format(time.RFC3339)},
+	}}
+	view := strings.Join(m.renderAttentionRows(118, 8), "\n")
+	for _, want := range []string{"LAST PUSH", "CI STATE", "active", "dormant", "RUNNING", "45d ago"} {
+		if !strings.Contains(view, want) { t.Errorf("repository health panel missing %q: %s", want, view) }
+	}
+}
+
+func TestInFlightRowsExposeStructuredWorkflowMetadata(t *testing.T) {
+	m := model{width: 110, height: 10, overviewPane: 1, repos: []repository{{
+		FullName: "acme/api",
+		Runs: []run{{ID: 91, Name: "integration-tests", Status: "in_progress", StartedAt: time.Now().Add(-12*time.Minute).Format(time.RFC3339), Branch: "feature/payments", Event: "pull_request", Actor: struct{ Login string `json:"login"` }{Login: "octocat"}}},
+	}}}
+	view := strings.Join(m.renderInFlightRows(108, 8), "\n")
+	for _, want := range []string{"RUNNING", "api", "integration-tests", "BRANCH feature/payments", "EVENT pull_request", "TRIGGER octocat", "RUN #91"} {
+		if !strings.Contains(view, want) { t.Errorf("in-flight row missing %q: %s", want, view) }
 	}
 }
