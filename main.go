@@ -3834,7 +3834,7 @@ func (m model) renderFooter(w int) string {
 		if m.overviewPane == 0 {
 			left = "↑↓ repos · → in flight · Enter open · l latest CI logs · r refresh · R force · C cache"
 		} else {
-			left = "↑↓ in flight · ← attention · Enter open · l logs · r refresh · R force · C cache"
+			left = "↑↓ in flight · ← repos · Enter open · l logs · r refresh · R force · C cache"
 		}
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · r refresh · R force · C clear cache · o browser"
@@ -3850,7 +3850,7 @@ func (m model) renderFooter(w int) string {
 			if m.overviewPane == 0 {
 				left = "↑↓ repos · → waiting · Enter open · r/R/C refresh"
 			} else {
-				left = "↑↓ waiting · ← attention · Enter open · r/R/C refresh"
+				left = "↑↓ waiting · ← repos · Enter open · r/R/C refresh"
 			}
 		case 1:
 			left = "↑↓ select · Enter detail · r/R/C refresh · Esc"
