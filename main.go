@@ -2372,10 +2372,15 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		rows=append(rows,line)
 	}
 	// Center the selected repository without splitting its group heading from its row.
-	selectedLine:=1; repoIndex:=0
-	for index,line:=range rows {
-		if strings.Contains(line,"▸ ") { continue }
-		if repoIndex==m.cursor { selectedLine=index; break }
+	selectedLine := 1
+	repoIndex := 0
+	for index, line := range rows {
+		if index == 0 || strings.Contains(line, "▸ ") { continue }
+		if repoIndex == m.cursor {
+			selectedLine = index
+			if index > 0 && strings.Contains(rows[index-1], "▸ ") { selectedLine = index-1 }
+			break
+		}
 		repoIndex++
 	}
 	start:=max(0,min(selectedLine-max(0,(h-2)/2),max(0,len(rows)-h)))
@@ -2861,32 +2866,25 @@ func repoStateStyle(state string) lipgloss.Style {
 func repoCI(repo repository) string {
 	running, waiting := 0, 0
 	for _, item := range repo.Runs {
-		if item.Status == "in_progress" {
-			running++
-		}
-		if queuedRun(item) {
-			waiting++
-		}
+		if item.Status == "in_progress" { running++ }
+		if queuedRun(item) { waiting++ }
 	}
 	switch {
-	case running > 0 && waiting > 0:
-		return fmt.Sprintf("%d RUN · %d WAIT", running, waiting)
-	case running > 0:
-		return fmt.Sprintf("%d RUNNING", running)
-	case waiting > 0:
-		return fmt.Sprintf("%d WAITING", waiting)
+	case running > 0 && waiting > 0: return fmt.Sprintf("%d RUN · %d WAIT", running, waiting)
+	case running > 0: return fmt.Sprintf("%d RUNNING", running)
+	case waiting > 0: return fmt.Sprintf("%d WAITING", waiting)
 	}
 	if latest := latestRun(repo); latest != nil {
 		switch latest.Conclusion {
-		case "success":
-			return "✓ OK"
+		case "success": return "✓ OK"
 		case "failure":
-			if time.Since(parseTime(latest.UpdatedAt)) <= 24*time.Hour {
-				return "FAILED"
-			}
+			if time.Since(parseTime(latest.UpdatedAt)) <= 24*time.Hour { return "FAILED" }
+			return "LAST FAIL"
+		case "cancelled": return "CANCELLED"
 		}
 	}
-	return "—"
+	if len(repo.Runs) == 0 { return "NO RECENT CI" }
+	return "NO ACTIVE CI"
 }
 
 type repoWork struct {
