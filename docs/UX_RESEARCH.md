@@ -100,7 +100,7 @@ The visual direction is a dark operations console with restrained neon accents, 
 
 Data columns use separate, stable visual channels: cyan for repository identity, blue for workload counts, violet for trend, magenta for contributor counts, teal for active branches, amber for PR counts, and the existing semantic CI colors for pipeline state. The selected row is highlighted across the full available width, including metadata/continuation lines, so the current focus is unambiguous.
 
-The CI queue includes a compact, text-based status distribution bar with explicit PASS / FAIL / RUN / WAIT counts. It is intentionally labelled as a loaded sample because the UI only has the workflow runs currently present in its repository snapshots; it must not imply complete historical CI coverage.
+The Overview and CI queue include a compact, text-based status distribution bar with explicit PASS / FAIL / RUN / WAIT counts. Showing it in both places makes the chart useful without forcing a drill-down. It is intentionally labelled as a loaded sample because the UI only has the workflow runs currently present in its repository snapshots; it must not imply complete historical CI coverage.
 
 ### Manual cache controls
 
