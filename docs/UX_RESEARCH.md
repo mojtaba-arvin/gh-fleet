@@ -110,3 +110,22 @@ The Overview and CI queue include a compact, text-based status distribution bar 
 
 The refresh path retains bounded concurrency and the existing retry/backoff behavior. It refuses to start a second repository snapshot fetch while one is already in progress.
 
+
+
+## Repository health, grouping, and terminal selection
+
+The Overview health panel is an inventory rather than an exception-only queue. Every loaded repository is shown with its last push age, current Actions state, open PR / issue counts, and its highest-priority actionable signal. CI is deliberately independent from push recency: a dormant repository can still show a running or queued workflow.
+
+The Repositories view groups projects in this order:
+
+1. CI running
+2. CI queued / waiting for a runner
+3. Pushed in the last 24 hours
+4. Active this week
+5. Quiet for 8–30 days
+6. Dormant for more than 30 days
+7. No push timestamp available
+
+Each group retains keyboard navigation through the same repository cursor. A selected row uses a continuous full-width selection background; nested ANSI foreground styles are stripped on that selected row because they otherwise interrupt the background fill.
+
+Bubble Tea mouse-cell reporting is intentionally disabled. It intercepted native terminal mouse selection and made visible text difficult to copy. The interface remains keyboard-first; users can select and copy rendered text with their terminal's normal selection and copy shortcuts. The application does not claim to provide a cross-terminal clipboard API.
