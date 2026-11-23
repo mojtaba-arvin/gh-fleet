@@ -1589,15 +1589,16 @@ func (m model) visibleRepos() []*repository {
 	out := make([]*repository, 0, len(m.repos))
 	for i := range m.repos {
 		r := &m.repos[i]
-		if m.filter == "" || strings.Contains(strings.ToLower(r.Name), strings.ToLower(m.filter)) {
+		if m.filter == "" || strings.Contains(strings.ToLower(r.Name), strings.ToLower(m.filter)) || strings.Contains(strings.ToLower(r.FullName), strings.ToLower(m.filter)) {
 			out = append(out, r)
 		}
 	}
+	now := time.Now()
 	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := repoGroupRank(*out[i], now), repoGroupRank(*out[j], now)
+		if ri != rj { return ri < rj }
 		si, sj := repoPriority(out[i]), repoPriority(out[j])
-		if si != sj {
-			return si < sj
-		}
+		if si != sj { return si < sj }
 		return latestRepoDate(*out[i]).After(latestRepoDate(*out[j]))
 	})
 	return out
@@ -2138,81 +2139,45 @@ func (m model) renderOverviewSummary() string {
 }
 
 func (m model) renderAttentionRows(w, h int) []string {
-	items := m.attentionItems()
-	if w < 88 {
-		rows := make([]string, 0, h)
-		start := max(0, min(m.attentionCursor, max(0, len(items)-1)))
-		for i := start; i < len(items) && len(rows) < h; i++ {
-			item := items[i]
-			line := attentionStyle(item.Kind).Render(item.Kind) + "  " +
-				titleStyle.Render(shortName(item.Repo)) + timeStyle.Render(" · "+ageLabel(item.Age))
-			if i == m.attentionCursor && m.overviewPane == 0 {
-				line = selectedRow(line, w)
-			}
-			rows = append(rows, fit(line, w))
-			if len(rows) < h {
-				detail := item.Subject + " → " + item.Next
-				if i == m.attentionCursor && m.overviewPane == 0 {
-					detail = selectedRow(detail, w)
-				}
-				rows = append(rows, fit(detail, w))
-			}
-		}
-		if len(items) == 0 {
-			message := "Nothing needs attention."
-			if len(m.repos) == 0 {
-				message = "Waiting for GitHub snapshot…"
-			}
-			rows = append(rows, goodStyle.Render(fit(message, w)))
-		}
-		for len(rows) < h {
-			rows = append(rows, "")
-		}
-		return rows[:min(len(rows), h)]
+	repos := m.visibleRepos()
+	rows := []string{mutedStyle.Render(fit("REPOSITORY                 LAST PUSH       CI STATE          PR   ISSUES   SIGNAL", w))}
+	if len(repos) == 0 {
+		message := "Waiting for the first GitHub repository snapshot…"
+		if len(m.repos) > 0 { message = "No repositories match the current filter." }
+		rows = append(rows, mutedStyle.Render(fit(message, w)))
 	}
-	rows := []string{mutedStyle.Render(fit("SIGNAL                 REPOSITORY / ITEM                         AGE   NEXT STEP", w))}
 	room := max(0, h-1)
-	if len(items) == 0 {
-		message := "Nothing needs a human decision right now."
-		if len(m.repos) == 0 {
-			message = "Waiting for the first GitHub repository snapshot…"
-		} else if m.busyRepos {
-			message = "Refreshing repository and review state…"
+	start := max(0, min(m.cursor-max(0, room/2), max(0, len(repos)-room)))
+	for i := start; i < min(len(repos), start+room); i++ {
+		repo := repos[i]
+		push, pushStyle := "NO PUSH DATA", mutedStyle
+		if t := parseTime(repo.PushedAt); !t.IsZero() {
+			age := time.Since(t); push = ageLabel(age) + " ago"
+			switch { case age <= 24*time.Hour: pushStyle = goodStyle; case age <= 7*24*time.Hour: pushStyle = activeStyle; case age <= 30*24*time.Hour: pushStyle = branchStyle; default: pushStyle = badStyle }
 		}
-		rows = append(rows, goodStyle.Render(message))
+		ci := repoCI(*repo); signal := "—"
+		if alerts := collectAttentionItems([]repository{*repo}, time.Now()); len(alerts) > 0 { signal = alerts[0].Kind }
+		nameW, pushW, ciW, countW := max(10,w/4), 12, 15, 5
+		remaining := max(6,w-nameW-pushW-ciW-countW*2-7)
+		line := titleStyle.Render(fit(m.repoLabel(repo),nameW))+" "+
+			pushStyle.Render(fit(push,pushW))+" "+ciStyle(ci).Render(fit(ci,ciW))+" "+
+			numberStyle.Render(fit(strconv.Itoa(repo.PRs),countW))+" "+
+			peopleStyle.Render(fit(strconv.Itoa(repo.Issues),countW))+" "+
+			attentionStyle(signal).Render(fit(signal,remaining))
+		if i == m.cursor && m.overviewPane == 0 { line = selectedRow(line,w) }
+		rows = append(rows,line)
 	}
-	start := max(0, min(m.attentionCursor-max(0, room/2), max(0, len(items)-room)))
-	for i := start; i < min(len(items), start+room); i++ {
-		item := items[i]
-		repoName := shortName(item.Repo)
-		kindWidth, repoWidth, ageWidth := 18, max(12, w/4), 5
-		if w < 88 {
-			repoWidth = max(10, w/3)
-		}
-		nextWidth := max(6, w-kindWidth-repoWidth-ageWidth-8)
-		subjectWidth := max(8, w-kindWidth-repoWidth-nextWidth-ageWidth-6)
-		line := attentionStyle(item.Kind).Render(fit(item.Kind, kindWidth)) + " " +
-			titleStyle.Render(fit(repoName, repoWidth)) + " " +
-			bodyStyle.Render(fit(item.Subject, subjectWidth)) + " " +
-			timeStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
-			actionStyle.Render(fit(item.Next, nextWidth))
-		if i == m.attentionCursor && m.overviewPane == 0 {
-			line = selectStyle.Width(w).Render(fit(line, w))
-		}
-		rows = append(rows, fit(line, w))
-	}
-	for len(rows) < h {
-		rows = append(rows, "")
-	}
-	return rows[:min(len(rows), h)]
+	for len(rows)<h { rows=append(rows,"") }
+	return rows[:min(len(rows),h)]
 }
-
 type inFlightItem struct {
 	Priority int
 	Kind     string
 	Repo     string
 	Subject  string
 	Detail   string
+	Actor    string
+	Event    string
 	Age      time.Duration
 	URL      string
 	RunID    int64
@@ -2241,7 +2206,7 @@ func collectInFlightItems(repos []repository, now time.Time, agentTaskSets ...ma
 					started = item.UpdatedAt
 				}
 			}
-			items = append(items, inFlightItem{Priority: priority, Kind: kind, Repo: repo.FullName, Subject: subject, Detail: item.Branch, Age: ageSince(now, started), URL: item.URL, RunID: item.ID})
+			items = append(items, inFlightItem{Priority: priority, Kind: kind, Repo: repo.FullName, Subject: subject, Detail: item.Branch, Actor: item.Actor.Login, Event: item.Event, Age: ageSince(now, started), URL: item.URL, RunID: item.ID})
 		}
 		for _, pr := range repo.PullRequests {
 			if pr.IsDraft || pr.ReviewDecision != "REVIEW_REQUIRED" || len(pr.RequestedReviewers) == 0 {
@@ -2268,71 +2233,42 @@ func collectInFlightItems(repos []repository, now time.Time, agentTaskSets ...ma
 
 func (m model) renderInFlightRows(w, h int) []string {
 	items := m.inFlightItems()
-	if w <= 0 || h <= 0 {
-		return nil
-	}
+	if w <= 0 || h <= 0 { return nil }
 	selected := max(0, min(m.inFlightCursor, len(items)-1))
 	if len(items) == 0 {
-		message := "No active workflows or explicitly requested reviews."
-		rows := []string{mutedStyle.Render(fit(message, w))}
-		for len(rows) < h {
-			rows = append(rows, "")
-		}
+		rows := []string{mutedStyle.Render(fit("No active workflows or explicitly requested reviews.", w))}
+		for len(rows) < h { rows = append(rows, "") }
 		return rows[:h]
 	}
-
-	if w < 88 {
-		start := max(0, min(selected-h/2, max(0, len(items)-h)))
-		rows := make([]string, 0, h)
-		for i := start; i < min(len(items), start+h); i++ {
-			item := items[i]
-			label := item.Kind + "  " + shortName(item.Repo) + "  " + item.Subject + "  " + ageLabel(item.Age)
-			if item.Detail != "" {
-				label += " · " + item.Detail
-			}
-			line := fit(label, w)
-			if i == selected && m.overviewPane == 1 {
-				line = selectedRow(line, w)
-			}
-			rows = append(rows, line)
-		}
-		for len(rows) < h {
-			rows = append(rows, "")
-		}
-		return rows[:h]
-	}
-
-	rows := []string{mutedStyle.Render(fit("STATE       REPOSITORY / WORKFLOW OR PR", w))}
+	rows := []string{mutedStyle.Render(fit("STATE       REPOSITORY / WORKFLOW                                      ELAPSED", w))}
 	room := max(0, h-1)
-	start := max(0, min(selected-room/2, max(0, len(items)-room)))
-	for i := start; i < min(len(items), start+room); i++ {
+	capacity := max(1, room/2)
+	start := max(0, min(selected-capacity/2, max(0, len(items)-capacity)))
+	for i := start; i < min(len(items), start+capacity); i++ {
 		item := items[i]
-		style := activeStyle
-		if item.Kind == "REVIEW" || strings.Contains(item.Kind, "WAITING") || strings.Contains(item.Kind, "STALE") {
-			style = branchStyle
-		}
-		if strings.Contains(item.Kind, "BLOCKED") {
-			style = badStyle
-		}
-		line := style.Render(fit(item.Kind, 16)) + " " +
+		state := activeStyle
+		if item.Kind == "REVIEW" || item.Kind == "QUEUED" || strings.Contains(item.Kind, "WAITING") || strings.Contains(item.Kind, "STALE") { state = branchStyle }
+		if strings.Contains(item.Kind, "BLOCKED") { state = badStyle }
+		primary := state.Render(fit(item.Kind, 12)) + " " +
 			titleStyle.Render(fit(shortName(item.Repo), max(10, w/4))) + " " +
-			bodyStyle.Render(fit(item.Subject, max(8, w/2))) + " " +
-			timeStyle.Render(ageLabel(item.Age))
-		if item.Detail != "" {
-			line += branchDataStyle.Render(" · " + item.Detail)
+			bodyStyle.Render(fit(item.Subject, max(8, w/2))) + " " + timeStyle.Render(ageLabel(item.Age))
+		metadata := branchDataStyle.Render("  BRANCH " + fallback(item.Detail, "—"))
+		if item.Kind == "REVIEW" {
+			metadata = branchDataStyle.Render("  " + fallback(item.Detail, "review requested"))
+		} else if item.RunID != 0 || item.Actor != "" || item.Event != "" {
+			metadata += mutedStyle.Render("  ·  EVENT ") + numberStyle.Render(fallback(item.Event, "—")) +
+				mutedStyle.Render("  ·  TRIGGER ") + peopleStyle.Render(fallback(item.Actor, "unknown")) +
+				mutedStyle.Render(fmt.Sprintf("  ·  RUN #%d", item.RunID))
 		}
-		line = fit(line, w)
+		primary, metadata = fit(primary, w), fit(metadata, w)
 		if i == selected && m.overviewPane == 1 {
-			line = selectStyle.Width(w).Render(line)
+			primary, metadata = selectedRow(primary, w), selectedRow(metadata, w)
 		}
-		rows = append(rows, line)
+		rows = append(rows, primary, metadata)
 	}
-	for len(rows) < h {
-		rows = append(rows, "")
-	}
-	return rows[:h]
+	for len(rows) < h { rows = append(rows, "") }
+	return rows[:min(len(rows), h)]
 }
-
 func (m model) overviewView() string {
 	w, h := m.width, m.height
 	header := m.renderHeader(w)
@@ -2345,115 +2281,110 @@ func (m model) overviewView() string {
 		gap := 1
 		leftW := int(float64(w) * 0.61)
 		rightW := w - leftW - gap
-		left := box("NEEDS ATTENTION", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
+		left := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
 		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
 		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", body, footer)
 	}
 	bodyH := max(3, h-7)
 	if bodyH < 7 {
-		attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, true)
+		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, true)
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, footer)
 	}
 	attentionH := max(3, (bodyH-1)*2/3)
 	waitH := bodyH - attentionH - 1
-	attention := box("NEEDS ATTENTION", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
+	attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
 	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, m.overviewPane == 1)
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, footer)
 }
 
+func repoGroupRank(repo repository, now time.Time) int {
+	switch {
+	case runningRuns(repo) > 0: return 0
+	case queuedRuns(repo) > 0: return 1
+	}
+	pushed := parseTime(repo.PushedAt)
+	if pushed.IsZero() { return 6 }
+	age := now.Sub(pushed)
+	switch { case age <= 24*time.Hour: return 2; case age <= 7*24*time.Hour: return 3; case age <= 30*24*time.Hour: return 4; default: return 5 }
+}
+
+func repoGroupLabel(rank int) string {
+	switch rank {
+	case 0: return "CI RUNNING"
+	case 1: return "CI QUEUED"
+	case 2: return "PUSHED IN THE LAST 24H"
+	case 3: return "ACTIVE THIS WEEK"
+	case 4: return "QUIET · 8–30 DAYS"
+	case 5: return "DORMANT · OVER 30 DAYS"
+	default: return "NO PUSH DATA"
+	}
+}
+
 func repoPortfolioState(repo repository, now time.Time) string {
-	if len(collectAttentionItems([]repository{repo}, now)) > 0 {
-		return "ATTENTION"
+	if len(collectAttentionItems([]repository{repo}, now)) > 0 { return "ATTENTION" }
+	switch repoGroupRank(repo,now) {
+	case 0: return "CI RUNNING"
+	case 1: return "CI QUEUED"
+	case 2: return "ACTIVE <24H"
+	case 3: return "ACTIVE <7D"
+	case 4: return "QUIET 8–30D"
+	case 5: return "DORMANT >30D"
+	default: return "NO PUSH DATA"
 	}
-	if runningRuns(repo) > 0 {
-		return "CI RUNNING"
-	}
-	if queuedRuns(repo) > 0 {
-		return "CI QUEUED"
-	}
-	for _, pr := range repo.PullRequests {
-		if !pr.IsDraft && pr.ReviewDecision == "REVIEW_REQUIRED" && len(pr.RequestedReviewers) > 0 {
-			return "IN REVIEW"
-		}
-	}
-	if repo.PRs > 0 {
-		return "OPEN PRs"
-	}
-	if repo.Issues > 0 {
-		return "OPEN ISSUES"
-	}
-	if ageSince(now, repo.PushedAt) > 30*24*time.Hour {
-		return "QUIET"
-	}
-	return "NO OPEN WORK"
 }
 
 func (m model) renderPortfolioRepos(w, h int) []string {
 	repos := m.visibleRepos()
-	if w < 70 {
-		rows := []string{mutedStyle.Render("REPOSITORY / DELIVERY STATE")}
-		for i, repo := range repos {
-			state := repoPortfolioState(*repo, time.Now())
-			line := titleStyle.Render(shortName(repo.FullName)) + "  " + repoStateStyle(state).Render(state)
-			detail := fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo))
-			if i == m.cursor {
-				line = selectedRow(line, w)
-				detail = selectedRow(detail, w)
-			}
-			rows = append(rows, fit(line, w), fit(detail, w))
-		}
-		if len(repos) == 0 {
-			rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter."))
-		}
-		start := max(0, min(m.cursor*2, max(0, len(rows)-h)))
-		visible := rows[:0]
-		visible = append(visible, rows[0])
-		if len(rows) > 1 {
-			visible = append(visible, rows[1+start:min(len(rows), 1+start+h-1)]...)
-		}
-		for len(visible) < h {
-			visible = append(visible, "")
-		}
-		return visible[:min(len(visible), h)]
+	rows := []string{mutedStyle.Render(fit("REPOSITORY                 PUSH AGE       DELIVERY STATE      CI          PRs  ISSUES",w))}
+	if len(repos)==0 {
+		message := "No matching repositories. Press / to filter or r to refresh."
+		if len(m.repos)==0 { message = "Waiting for GitHub repository snapshot…" }
+		rows=append(rows,mutedStyle.Render(fit(message,w)))
+		return rows[:min(len(rows),h)]
 	}
-	rows := []string{mutedStyle.Render(fit("REPOSITORY                 STATUS        PRs  ISSUES  LAST PUSH   LATEST CI", w))}
-	if len(repos) == 0 {
-		rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter or r to refresh."))
-	}
-	nameW := max(12, min(28, w/3))
-	statusW := 13
-	restW := max(8, w-nameW-statusW-31)
-	for i, repo := range repos {
-		ci := repoCI(*repo)
-		lastPush := "—"
-		if repo.PushedAt != "" {
-			lastPush = shortAge(repo.PushedAt)
+	now:=time.Now()
+	nameW:=max(12,min(28,w/3)); pushW,stateW,ciW,prW,issueW:=10,15,12,4,6
+	used:=nameW+pushW+stateW+ciW+prW+issueW+6; alertW:=max(0,w-used)
+	lastGroup:=-1
+	for i,repo:=range repos {
+		group:=repoGroupRank(*repo,now)
+		if group!=lastGroup {
+			count:=0; for _,candidate:=range repos { if repoGroupRank(*candidate,now)==group { count++ } }
+			rows=append(rows,groupStyle(group).Render(fit(fmt.Sprintf("▸ %s  ·  %d repositories",repoGroupLabel(group),count),w)))
+			lastGroup=group
 		}
-		state := repoPortfolioState(*repo, time.Now())
-		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
-			repoStateStyle(state).Render(fit(state, statusW)) + " " +
-			activeStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
-			peopleStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
-			timeStyle.Render(fit(lastPush, 10)) + " " +
-			ciStyle(ci).Render(fit(ci, restW))
-		if i == m.cursor {
-			line = selectStyle.Width(w).Render(fit(line, w))
+		push:="—"; if !parseTime(repo.PushedAt).IsZero() { push=shortAge(repo.PushedAt) }
+		state,ci:=repoPortfolioState(*repo,now),repoCI(*repo)
+		line:=titleStyle.Render(fit(m.repoLabel(repo),nameW))+" "+
+			timeStyle.Render(fit(push,pushW))+" "+
+			repoStateStyle(state).Render(fit(state,stateW))+" "+
+			ciStyle(ci).Render(fit(ci,ciW))+" "+
+			numberStyle.Render(fit(strconv.Itoa(repo.PRs),prW))+" "+
+			peopleStyle.Render(fit(strconv.Itoa(repo.Issues),issueW))
+		if alertW>=8 {
+			signal:="—"; if alerts:=collectAttentionItems([]repository{*repo},now);len(alerts)>0 { signal=alerts[0].Kind }
+			line+=" "+attentionStyle(signal).Render(fit(signal,alertW))
 		}
-		rows = append(rows, fit(line, w))
+		if i==m.cursor { line=selectedRow(line,w) }
+		rows=append(rows,line)
 	}
-	start := max(0, min(m.cursor-max(0, (h-2)/2), max(0, len(rows)-h)))
-	visible := rows[:0]
-	visible = append(visible, rows[0])
-	if len(rows) > 1 {
-		visible = append(visible, rows[1+start:min(len(rows), 1+start+h-1)]...)
+	// Center the selected repository without splitting its group heading from its row.
+	selectedLine:=1; repoIndex:=0
+	for index,line:=range rows {
+		if strings.Contains(line,"▸ ") { continue }
+		if repoIndex==m.cursor { selectedLine=index; break }
+		repoIndex++
 	}
-	for len(visible) < h {
-		visible = append(visible, "")
-	}
-	return visible[:min(len(visible), h)]
+	start:=max(0,min(selectedLine-max(0,(h-2)/2),max(0,len(rows)-h)))
+	visible:=rows[start:min(len(rows),start+h)]
+	for len(visible)<h { visible=append(visible,"") }
+	return visible[:min(len(visible),h)]
 }
 
+func groupStyle(group int) lipgloss.Style {
+	switch group { case 0:return activeStyle; case 1:return branchStyle; case 2:return goodStyle; case 3:return titleStyle; case 4:return branchStyle; case 5:return badStyle; default:return mutedStyle }
+}
 func (m model) repositoriesView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
@@ -3819,7 +3750,7 @@ func main() {
 	if cachePath == "" {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet: cache directory is unavailable; cached startup will be disabled")
 	}
-	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag), tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet:", err)
 		os.Exit(1)
