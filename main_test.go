@@ -681,3 +681,13 @@ func TestInFlightRowsExposeStructuredWorkflowMetadata(t *testing.T) {
 		if !strings.Contains(view, want) { t.Errorf("in-flight row missing %q: %s", want, view) }
 	}
 }
+
+
+func TestRepoCIExplainsMissingAndInactiveWorkflowState(t *testing.T) {
+	if got := repoCI(repository{}); got != "NO RECENT CI" {
+		t.Fatalf("empty CI state = %q, want NO RECENT CI", got)
+	}
+	if got := repoCI(repository{Runs: []run{{Status: "completed", Conclusion: "success"}}}); got != "✓ OK" {
+		t.Fatalf("completed CI state = %q, want success", got)
+	}
+}
