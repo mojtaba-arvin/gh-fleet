@@ -2148,6 +2148,60 @@ func (m model) renderOverviewSummary() string {
 
 func (m model) renderAttentionRows(w, h int) []string {
 	repos := m.visibleRepos()
+	if w < 88 {
+		rows := make([]string, 0, h)
+		if len(repos) == 0 {
+			message := "Waiting for the first GitHub repository snapshot…"
+			if len(m.repos) > 0 {
+				message = "No repositories match the current filter."
+			}
+			return []string{mutedStyle.Render(fit(message, w))}
+		}
+		capacity := max(1, h/2)
+		start := max(0, min(m.cursor-capacity/2, max(0, len(repos)-capacity)))
+		for i := start; i < min(len(repos), start+capacity) && len(rows)+1 < h; i++ {
+			repo := repos[i]
+			push := "NO PUSH DATA"
+			pushStyle := mutedStyle
+			if t := parseTime(repo.PushedAt); !t.IsZero() {
+				age := time.Since(t)
+				push = ageLabel(age) + " ago"
+				switch {
+				case age <= 24*time.Hour:
+					pushStyle = goodStyle
+				case age <= 7*24*time.Hour:
+					pushStyle = activeStyle
+				case age <= 30*24*time.Hour:
+					pushStyle = branchStyle
+				default:
+					pushStyle = badStyle
+				}
+			}
+			state := repoPortfolioState(*repo, time.Now())
+			ci := repoCI(*repo)
+			alerts := collectAttentionItems([]repository{*repo}, time.Now())
+			signals := make([]string, 0, len(alerts))
+			for _, alert := range alerts {
+				signals = append(signals, alert.Kind)
+			}
+			signal := "NO ALERT"
+			if len(signals) > 0 {
+				signal = strings.Join(signals, ", ")
+			}
+			first := titleStyle.Render(m.repoLabel(repo)) + mutedStyle.Render("  ·  PUSH ") + pushStyle.Render(push) + mutedStyle.Render("  ·  ") + repoStateStyle(state).Render(state)
+			second := ciStyle(ci).Render("CI "+ci) + mutedStyle.Render(fmt.Sprintf("  ·  PR %d  ·  ISSUES %d  ·  ", repo.PRs, repo.Issues)) + attentionStyle(fallback(signalsFirst(signals), "NO ALERT")).Render("SIGNAL "+signal)
+			first, second = fit(first, w), fit(second, w)
+			if i == m.cursor && m.overviewPane == 0 {
+				first, second = selectedRow(first, w), selectedRow(second, w)
+			}
+			rows = append(rows, first, second)
+		}
+		for len(rows) < h {
+			rows = append(rows, "")
+		}
+		return rows[:min(len(rows), h)]
+	}
+
 	rows := []string{mutedStyle.Render(fit("REPOSITORY                 LAST PUSH       CI STATE          PR   ISSUES   SIGNAL", w))}
 	if len(repos) == 0 {
 		message := "Waiting for the first GitHub repository snapshot…"
@@ -2196,6 +2250,13 @@ func (m model) renderAttentionRows(w, h int) []string {
 		rows = append(rows, "")
 	}
 	return rows[:min(len(rows), h)]
+}
+
+func signalsFirst(signals []string) string {
+	if len(signals) == 0 {
+		return ""
+	}
+	return signals[0]
 }
 
 type inFlightItem struct {
