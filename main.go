@@ -1598,9 +1598,13 @@ func (m model) visibleRepos() []*repository {
 	now := time.Now()
 	sort.SliceStable(out, func(i, j int) bool {
 		ri, rj := repoGroupRank(*out[i], now), repoGroupRank(*out[j], now)
-		if ri != rj { return ri < rj }
+		if ri != rj {
+			return ri < rj
+		}
 		si, sj := repoPriority(out[i]), repoPriority(out[j])
-		if si != sj { return si < sj }
+		if si != sj {
+			return si < sj
+		}
 		return latestRepoDate(*out[i]).After(latestRepoDate(*out[j]))
 	})
 	return out
@@ -3002,6 +3006,7 @@ func repoCI(repo repository) string {
 	}
 	return "NO ACTIVE CI"
 }
+
 type repoWork struct {
 	Commits24h, Commits7d, Commits30d int
 	ActiveBranches7d                  int
