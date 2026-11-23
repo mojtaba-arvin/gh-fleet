@@ -72,3 +72,16 @@ func TestForceRefreshAndCacheClearKeys(t *testing.T) {
 		t.Fatalf("cache file still exists after C: err=%v", err)
 	}
 }
+
+
+func TestSelectedRowStripsNestedANSIAndFillsFullWidth(t *testing.T) {
+	const width = 96
+	colored := titleStyle.Render("repo") + " " + badStyle.Render("FAILED")
+	got := selectedRow(colored, width)
+	if actual := lipglossWidth(got); actual != width {
+		t.Fatalf("selected row width = %d, want %d", actual, width)
+	}
+	if strings.Contains(got, "\\x1b[") {
+		t.Fatal("selected row retained nested ANSI styles that can interrupt its full-width background")
+	}
+}
