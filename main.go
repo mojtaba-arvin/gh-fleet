@@ -2399,7 +2399,7 @@ func (m model) repositoriesView() string {
 		return m.repoDetailView()
 	}
 	bodyH := max(5, h-6)
-	body := box("REPOSITORY PORTFOLIO · SORTED BY OPERATIONAL NEED", m.renderPortfolioRepos(w-2, bodyH-2), w, bodyH, true)
+	body := box("REPOSITORY PORTFOLIO · GROUPED BY CI + PUSH RECENCY", m.renderPortfolioRepos(w-2, bodyH-2), w, bodyH, true)
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, body, m.renderFooter(w))
 }
 
@@ -2852,13 +2852,15 @@ func ciStyle(state string) lipgloss.Style {
 }
 
 func repoStateStyle(state string) lipgloss.Style {
-	switch state {
-	case "ATTENTION":
+	switch {
+	case state == "ATTENTION" || strings.HasPrefix(state, "DORMANT"):
 		return badStyle
-	case "CI RUNNING", "OPEN PRs":
+	case state == "CI RUNNING" || strings.HasPrefix(state, "ACTIVE"):
 		return activeStyle
-	case "CI QUEUED", "IN REVIEW":
+	case state == "CI QUEUED" || strings.HasPrefix(state, "QUIET") || state == "IN REVIEW":
 		return branchStyle
+	case state == "NO PUSH DATA":
+		return mutedStyle
 	default:
 		return mutedStyle
 	}
