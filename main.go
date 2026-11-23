@@ -2145,7 +2145,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 		for i := start; i < len(items) && len(rows) < h; i++ {
 			item := items[i]
 			line := attentionStyle(item.Kind).Render(item.Kind) + "  " +
-				titleStyle.Render(shortName(item.Repo)) + mutedStyle.Render(" · "+ageLabel(item.Age))
+				titleStyle.Render(shortName(item.Repo)) + timeStyle.Render(" · "+ageLabel(item.Age))
 			if i == m.attentionCursor && m.overviewPane == 0 {
 				line = selectedRow(line, w)
 			}
@@ -2548,7 +2548,7 @@ func (m model) repoDetailView() string {
 			if label == "" {
 				label = item.Title
 			}
-			content = append(content, fit(stateStyle(item).Render(stateText(item))+"  "+label+"  ·  "+fallback(item.Branch, "branch unknown")+"  ·  "+shortAge(item.UpdatedAt)+" ago", w-2))
+			content = append(content, fit(stateStyle(item).Render(stateText(item))+"  "+bodyStyle.Render(label)+"  "+branchDataStyle.Render(fallback(item.Branch, "branch unknown"))+"  "+timeStyle.Render(shortAge(item.UpdatedAt)+" ago"), w-2))
 			ciShown++
 			if ciShown >= 2 || len(content) >= innerRows {
 				break
@@ -3564,7 +3564,7 @@ func (m model) renderActivity(w, h int) []string {
 		if actor == "" {
 			actor = "unknown"
 		}
-		first := titleStyle.Render(fit(m.repoLabelByName(item.Repo), max(8, w/4))) + " " + branchStyle.Render(fit(item.Branch, max(8, w/4))) + " " + mutedStyle.Render(fit(actor, max(8, w/4))) + " " + mutedStyle.Render(shortAge(item.Commit.Date))
+		first := titleStyle.Render(fit(m.repoLabelByName(item.Repo), max(8, w/4))) + " " + branchStyle.Render(fit(item.Branch, max(8, w/4))) + " " + peopleStyle.Render(fit(actor, max(8, w/4))) + " " + timeStyle.Render(shortAge(item.Commit.Date))
 		second := mutedStyle.Render("  " + item.Commit.Msg)
 		content = append(content, fit(first, w), fit(second, w))
 	}
@@ -3599,7 +3599,7 @@ func (m model) renderActions(w, h int) []string {
 		if branch == "" {
 			branch = "—"
 		}
-		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + fit(workflow, max(8, w-25))
+		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + bodyStyle.Render(fit(workflow, max(8, w-25)))
 		second := branchDataStyle.Render("  "+fit(branch, max(8, w-36))) + " " +
 			peopleStyle.Render("· trigger: "+fit(actor, 10)) + " " +
 			timeStyle.Render("· "+shortAge(ref.item.UpdatedAt))
