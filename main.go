@@ -959,6 +959,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if msg.String() == "R" {
+			return m, tea.Batch(m.refreshAll(true)...)
+		}
+		if msg.String() == "C" {
+			return m, tea.Batch(m.clearCacheAndRefresh()...)
+		}
 		if m.filtering {
 			switch msg.String() {
 			case "esc":
@@ -1144,15 +1150,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			m.lastErr = "Refreshing GitHub…"
-			delete(m.retryAt, "repos")
-			m.busyRepos = true
-			for _, r := range m.repos {
-				delete(m.retryAt, "runs:"+r.FullName)
-				delete(m.retryAt, "branches:"+r.FullName)
-				m.queueRun(r.FullName, false)
-			}
-			return m, tea.Batch(append(append([]tea.Cmd{fetchReposCmd(m.api)}, m.drainRunQueue()...), m.animationCmdIfNeeded())...)
+			return m, tea.Batch(m.refreshAll(false)...)
 		case "/":
 			m.focus = 1
 			m.filtering = true
@@ -1445,6 +1443,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// refreshAll bypasses the normal refresh schedule. A forced refresh clears ETags
+// so GitHub returns fresh representations instead of responding with HTTP 304.
+func (m *model) refreshAll(force bool) []tea.Cmd {
+	if force {
+		m.api.mu.Lock()
+		m.api.etags = make(map[string]string)
+		m.api.cache = make(map[string][]run)
+		m.api.mu.Unlock()
+	}
+	m.lastErr = "Refreshing GitHub snapshot…"
+	if force {
+		m.lastErr = "Force-refreshing GitHub snapshot…"
+	}
+	delete(m.retryAt, "repos")
+	m.busyRepos = true
+	for _, repo := range m.repos {
+		delete(m.retryAt, "runs:"+repo.FullName)
+		delete(m.retryAt, "branches:"+repo.FullName)
+		m.queueRun(repo.FullName, false)
+	}
+	cmds := []tea.Cmd{fetchReposCmd(m.api)}
+	cmds = append(cmds, m.drainRunQueue()...)
+	if cmd := m.animationCmdIfNeeded(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return cmds
+}
+
+// clearCacheAndRefresh removes the on-disk snapshot and ETags while retaining
+// the currently rendered data until a replacement snapshot has been fetched.
+func (m *model) clearCacheAndRefresh() []tea.Cmd {
+	if m.cachePath != "" {
+		if err := os.Remove(m.cachePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			m.lastErr = "Could not clear cache: " + err.Error()
+			return nil
+		}
+	}
+	m.api.mu.Lock()
+	m.api.etags = make(map[string]string)
+	m.api.cache = make(map[string][]run)
+	m.api.mu.Unlock()
+	m.lastErr = "Local cache cleared; fetching a fresh GitHub snapshot…"
+	return m.refreshAll(true)
 }
 
 func (m *model) logScroll(n int) {
@@ -1783,14 +1826,16 @@ func commits(repos []repository, scope string) []commitActivity {
 var (
 	ink         = lipgloss.Color("#e6edf7")
 	muted       = lipgloss.Color("#8793a8")
-	panelBorder = lipgloss.Color("#35445d")
+	panelBorder = lipgloss.Color("#26384f")
 	cyan        = lipgloss.Color("#67e8f9")
 	green       = lipgloss.Color("#4ade80")
 	red         = lipgloss.Color("#fb7185")
 	yellow      = lipgloss.Color("#fbbf24")
 	purple      = lipgloss.Color("#c4b5fd")
 	blue        = lipgloss.Color("#60a5fa")
-	selectedBG  = lipgloss.Color("#1e3350")
+	magenta     = lipgloss.Color("#f472b6")
+	teal        = lipgloss.Color("#2dd4bf")
+	selectedBG  = lipgloss.Color("#12364a")
 	titleStyle  = lipgloss.NewStyle().Foreground(cyan).Bold(true)
 	brandStyle  = lipgloss.NewStyle().Foreground(blue).Bold(true)
 	mutedStyle  = lipgloss.NewStyle().Foreground(muted)
@@ -1798,6 +1843,10 @@ var (
 	badStyle    = lipgloss.NewStyle().Foreground(red).Bold(true)
 	activeStyle = lipgloss.NewStyle().Foreground(yellow).Bold(true)
 	branchStyle = lipgloss.NewStyle().Foreground(purple)
+	numberStyle = lipgloss.NewStyle().Foreground(blue)
+	trendStyle  = lipgloss.NewStyle().Foreground(purple)
+	peopleStyle = lipgloss.NewStyle().Foreground(magenta)
+	branchDataStyle = lipgloss.NewStyle().Foreground(teal)
 	selectStyle = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
 )
 
@@ -1819,6 +1868,12 @@ func openURL(raw string) error {
 }
 
 func width(s string) int { return lipgloss.Width(s) }
+
+// selectedRow paints the full terminal row, including trailing blank cells.
+func selectedRow(s string, w int) string {
+	return selectStyle.Width(w).Render(fit(s, w))
+}
+
 func fit(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -2093,14 +2148,16 @@ func (m model) renderAttentionRows(w, h int) []string {
 			item := items[i]
 			line := attentionStyle(item.Kind).Render(item.Kind) + "  " +
 				titleStyle.Render(shortName(item.Repo)) + mutedStyle.Render(" · "+ageLabel(item.Age))
+			if i == m.attentionCursor && m.overviewPane == 0 {
+				line = selectedRow(line, w)
+			}
 			rows = append(rows, fit(line, w))
 			if len(rows) < h {
 				detail := item.Subject + " → " + item.Next
 				if i == m.attentionCursor && m.overviewPane == 0 {
-					rows = append(rows, selectStyle.Width(w).Render(fit(detail, w)))
-				} else {
-					rows = append(rows, fit(detail, w))
+					detail = selectedRow(detail, w)
 				}
+				rows = append(rows, fit(detail, w))
 			}
 		}
 		if len(items) == 0 {
@@ -2237,7 +2294,7 @@ func (m model) renderInFlightRows(w, h int) []string {
 			}
 			line := fit(label, w)
 			if i == selected && m.overviewPane == 1 {
-				line = selectStyle.Width(w).Render(line)
+				line = selectedRow(line, w)
 			}
 			rows = append(rows, line)
 		}
@@ -2343,8 +2400,12 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 			if i == m.cursor {
 				line = selectStyle.Width(w).Render(fit(line, w))
 			}
-			rows = append(rows, fit(line, w))
-			rows = append(rows, fit(fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo)), w))
+			detail := fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo))
+			if i == m.cursor {
+				line = selectedRow(line, w)
+				detail = selectedRow(detail, w)
+			}
+			rows = append(rows, fit(line, w), fit(detail, w))
 		}
 		if len(repos) == 0 {
 			rows = append(rows, mutedStyle.Render("No matching repositories. Press / to filter."))
@@ -2489,12 +2550,50 @@ func (m model) repoDetailView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, panel, m.renderFooter(w))
 }
 
+func (m model) renderCIHealthChart(w int) string {
+	var passed, failed, running, waiting int
+	for _, repo := range m.repos {
+		for _, item := range repo.Runs {
+			switch runState(item) {
+			case "success":
+				passed++
+			case "failure", "startup_failure", "action_required":
+				failed++
+			case "in_progress":
+				running++
+			case "queued", "waiting", "requested", "pending":
+				waiting++
+			}
+		}
+	}
+	total := passed + failed + running + waiting
+	if total == 0 {
+		return mutedStyle.Render(fit("CI SIGNAL // waiting for workflow samples", w))
+	}
+	barWidth := max(8, min(36, w-4))
+	counts := []int{passed, failed, running, waiting}
+	styles := []lipgloss.Style{goodStyle, badStyle, activeStyle, branchStyle}
+	var bar strings.Builder
+	for i, count := range counts {
+		segments := 0
+		if count > 0 {
+			segments = max(1, count*barWidth/total)
+		}
+		bar.WriteString(styles[i].Render(strings.Repeat("█", segments)))
+	}
+	legend := goodStyle.Render(fmt.Sprintf(" PASS %d ", passed)) +
+		badStyle.Render(fmt.Sprintf(" FAIL %d ", failed)) +
+		activeStyle.Render(fmt.Sprintf(" RUN %d ", running)) +
+		branchStyle.Render(fmt.Sprintf(" WAIT %d ", waiting))
+	return fit(mutedStyle.Render("CI SIGNAL // loaded sample  ")+bar.String()+"  "+legend, w)
+}
+
 func (m model) ciQueueView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
-	bodyH := max(5, h-6)
+	bodyH := max(5, h-7)
 	body := box(fmt.Sprintf("CI QUEUE · %d RUNNING · %d QUEUED", m.runningCI(), m.queuedCI()), m.renderActions(w-2, bodyH-2), w, bodyH, true)
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, body, m.renderFooter(w))
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, m.renderCIHealthChart(w), body, m.renderFooter(w))
 }
 
 func fallback(value, otherwise string) string {
@@ -2754,14 +2853,14 @@ func (m model) renderRepos(w, h int) []string {
 		}
 		ci := repoCI(*r)
 		line := titleStyle.Render(fit(m.repoLabel(r), nameW)) + " " +
-			mutedStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
-			branchStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
-			mutedStyle.Render(fit(approx+countFmt(len(work.Actors)), peopleW)) + " " +
-			mutedStyle.Render(fit(countFmt(work.ActiveBranches7d), branchW)) + " " +
+			numberStyle.Render(fit(fmt.Sprintf("%s%d/%d/%d", approx, work.Commits24h, work.Commits7d, work.Commits30d), workW)) + " " +
+			trendStyle.Render(fit(sparkline(work.Daily), trendW)) + " " +
+			peopleStyle.Render(fit(approx+countFmt(len(work.Actors)), peopleW)) + " " +
+			branchDataStyle.Render(fit(countFmt(work.ActiveBranches7d), branchW)) + " " +
 			ciStyle(ci).Render(fit(ci, ciW)) + " " +
-			mutedStyle.Render(fit(countFmt(r.PRs), prW))
+			activeStyle.Render(fit(countFmt(r.PRs), prW))
 		if i == m.cursor {
-			line = selectStyle.Width(w).Render(fit(line, w))
+			line = selectedRow(line, w)
 		}
 		content = append(content, fit(line, w))
 	}
@@ -3485,7 +3584,8 @@ func (m model) renderActions(w, h int) []string {
 		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + fit(workflow, max(8, w-25))
 		second := mutedStyle.Render("  " + fit(branch, max(8, w-36)) + " · trigger: " + fit(actor, 10) + " · " + shortAge(ref.item.UpdatedAt))
 		if i == m.runCursor {
-			first = selectStyle.Width(w).Render(fit(first, w))
+			first = selectedRow(first, w)
+			second = selectedRow(second, w)
 		}
 		content = append(content, fit(first, w), fit(second, w))
 	}
@@ -3646,7 +3746,9 @@ func (m model) helpView() string {
 		"  RUNNING              GitHub Actions workflow is in progress",
 		"  QUEUED               Workflow is waiting for a runner",
 		"  FAILED               Workflow completed with a failure in the last 24h",
-		"  r                    Refresh repository and Actions data",
+		"  r                    Refresh repository and Actions data (conditional)",
+		"  R                    Force refresh; bypass cached ETags",
+		"  C                    Clear local cache and force a fresh snapshot",
 		"  l / Enter on run     Open its logs; w toggles live log polling",
 		"  u                    Refresh the current log immediately", "",
 		"SOURCES + FRESHNESS",
@@ -3655,6 +3757,7 @@ func (m model) helpView() string {
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
 		"  Cached data remains visible during API outages; stale data is labelled.",
+		"  r refreshes; R bypasses ETags; C clears local cache and refreshes.",
 		"  Agent events are read-only from --agent-events or GH_FLEET_AGENT_EVENTS.",
 		"  Agent telemetry is not written to the GitHub metadata cache.",
 	}
