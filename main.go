@@ -2496,7 +2496,7 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 			}
 			state, ci := repoPortfolioState(*repo, now), repoCI(*repo)
 			first := titleStyle.Render(m.repoLabel(repo)) + "  " + repoStateStyle(state).Render(state)
-			second := timeStyle.Render("PUSH " + push) + mutedStyle.Render("  ·  ") + ciStyle(ci).Render("CI " + ci) +
+			second := timeStyle.Render("PUSH "+push) + mutedStyle.Render("  ·  ") + ciStyle(ci).Render("CI "+ci) +
 				mutedStyle.Render(fmt.Sprintf("  ·  PR %d · ISSUES %d", repo.PRs, repo.Issues))
 			if i == m.cursor {
 				first, second = selectedRow(fit(first, w), w), selectedRow(fit(second, w), w)
