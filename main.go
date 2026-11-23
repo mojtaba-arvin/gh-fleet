@@ -1855,7 +1855,10 @@ var (
 	trendStyle  = lipgloss.NewStyle().Foreground(purple)
 	peopleStyle = lipgloss.NewStyle().Foreground(magenta)
 	branchDataStyle = lipgloss.NewStyle().Foreground(teal)
-	selectStyle = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
+	bodyStyle       = lipgloss.NewStyle().Foreground(ink)
+	timeStyle       = lipgloss.NewStyle().Foreground(blue)
+	actionStyle     = lipgloss.NewStyle().Foreground(teal).Bold(true)
+	selectStyle     = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
 )
 
 func openURL(raw string) error {
@@ -2203,9 +2206,9 @@ func (m model) renderAttentionRows(w, h int) []string {
 		subjectWidth := max(8, w-kindWidth-repoWidth-nextWidth-ageWidth-6)
 		line := attentionStyle(item.Kind).Render(fit(item.Kind, kindWidth)) + " " +
 			titleStyle.Render(fit(repoName, repoWidth)) + " " +
-			mutedStyle.Render(fit(item.Subject, subjectWidth)) + " " +
-			mutedStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
-			mutedStyle.Render(fit(item.Next, nextWidth))
+			bodyStyle.Render(fit(item.Subject, subjectWidth)) + " " +
+			timeStyle.Render(fit(ageLabel(item.Age), ageWidth)) + " " +
+			actionStyle.Render(fit(item.Next, nextWidth))
 		if i == m.attentionCursor && m.overviewPane == 0 {
 			line = selectStyle.Width(w).Render(fit(line, w))
 		}
@@ -2326,10 +2329,10 @@ func (m model) renderInFlightRows(w, h int) []string {
 		}
 		line := style.Render(fit(item.Kind, 16)) + " " +
 			titleStyle.Render(fit(shortName(item.Repo), max(10, w/4))) + " " +
-			fit(item.Subject, max(8, w/2)) + " " +
-			mutedStyle.Render(ageLabel(item.Age))
+			bodyStyle.Render(fit(item.Subject, max(8, w/2))) + " " +
+			timeStyle.Render(ageLabel(item.Age))
 		if item.Detail != "" {
-			line += mutedStyle.Render(" · " + item.Detail)
+			line += branchDataStyle.Render(" · " + item.Detail)
 		}
 		line = fit(line, w)
 		if i == selected && m.overviewPane == 1 {
@@ -2442,9 +2445,9 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		state := repoPortfolioState(*repo, time.Now())
 		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
 			repoStateStyle(state).Render(fit(state, statusW)) + " " +
-			mutedStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
-			mutedStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
-			mutedStyle.Render(fit(lastPush, 10)) + " " +
+			activeStyle.Render(fit(strconv.Itoa(repo.PRs), 4)) + " " +
+			peopleStyle.Render(fit(strconv.Itoa(repo.Issues), 6)) + " " +
+			timeStyle.Render(fit(lastPush, 10)) + " " +
 			ciStyle(ci).Render(fit(ci, restW))
 		if i == m.cursor {
 			line = selectStyle.Width(w).Render(fit(line, w))
@@ -2497,6 +2500,19 @@ func pullRequestReviewText(pr pullRequestSummary) string {
 	}
 }
 
+func prReviewStyle(pr pullRequestSummary) lipgloss.Style {
+	switch {
+	case pr.MergeStateStatus == "DIRTY", pr.ReviewDecision == "CHANGES_REQUESTED":
+		return badStyle
+	case pr.ReviewDecision == "APPROVED":
+		return goodStyle
+	case pr.IsDraft:
+		return mutedStyle
+	default:
+		return activeStyle
+	}
+}
+
 func (m model) repoDetailView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
@@ -2510,8 +2526,11 @@ func (m model) repoDetailView() string {
 	prStart := max(0, min(m.prCursor-prCapacity/2, max(0, len(repo.PullRequests)-prCapacity)))
 	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
-		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch "+fallback(repo.Default, "unknown")),
-		mutedStyle.Render(fmt.Sprintf("Open PRs %d  ·  Open issues %d  ·  Branches %d  ·  Last push %s", repo.PRs, repo.Issues, repo.BranchN, fallback(shortAge(repo.PushedAt), "—"))),
+		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch ") + branchDataStyle.Render(fallback(repo.Default, "unknown")),
+		titleStyle.Render("OPEN PRs ") + activeStyle.Render(strconv.Itoa(repo.PRs)) +
+			mutedStyle.Render("  ·  OPEN ISSUES ") + peopleStyle.Render(strconv.Itoa(repo.Issues)) +
+			mutedStyle.Render("  ·  BRANCHES ") + branchDataStyle.Render(strconv.Itoa(repo.BranchN)) +
+			mutedStyle.Render("  ·  LAST PUSH ") + timeStyle.Render(fallback(shortAge(repo.PushedAt), "—")),
 		"",
 		titleStyle.Render("OPEN PULL REQUESTS  ·  ↑↓ SELECT  ·  ENTER / o OPEN"),
 	}
@@ -2520,7 +2539,10 @@ func (m model) repoDetailView() string {
 	}
 	for i := prStart; i < prEnd; i++ {
 		pr := repo.PullRequests[i]
-		line := fmt.Sprintf("#%-5d %s  ·  %s  ·  %s ago", pr.Number, pr.Title, pullRequestReviewText(pr), shortAge(pr.UpdatedAt))
+		line := numberStyle.Render(fmt.Sprintf("#%-5d", pr.Number)) + " " +
+			bodyStyle.Render(pr.Title) + "  " +
+			prReviewStyle(pr).Render(pullRequestReviewText(pr)) + "  " +
+			timeStyle.Render(shortAge(pr.UpdatedAt)+" ago")
 		if i == m.prCursor {
 			content = append(content, selectStyle.Width(w-2).Render(fit(line, w-2)))
 		} else {
@@ -3507,7 +3529,10 @@ func (m model) agentWorkloadView() string {
 			names = append(names, shortName(name))
 		}
 		sort.Strings(names)
-		line := titleStyle.Render(fit(a.Name, 18)) + " " + mutedStyle.Render(fmt.Sprintf("%5d / %-5d", a.Commits24h, a.Commits7d)) + " " + activeStyle.Render(fmt.Sprintf("%3d / %-3d", a.Running, a.Waiting)) + " " + fit(strings.Join(names, ","), max(12, w-75)) + " " + mutedStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
+		line := titleStyle.Render(fit(a.Name, 18)) + " " + numberStyle.Render(fmt.Sprintf("%5d / %-5d", a.Commits24h, a.Commits7d)) + " " + activeStyle.Render(fmt.Sprintf("%3d / %-3d", a.Running, a.Waiting)) + " " + branchDataStyle.Render(fit(strings.Join(names, ","), max(12, w-75))) + " " + timeStyle.Render(shortAge(a.Last.Format(time.RFC3339)))
+		if i == start {
+			line = selectedRow(line, w)
+		}
 		content = append(content, fit(line, w))
 	}
 	footer := mutedStyle.Render(fmt.Sprintf("IDENTITIES %d  ·  not verified agent identities  ·  ↑↓ scroll  r refresh  Esc back", len(rows)))
@@ -3587,7 +3612,9 @@ func (m model) renderActions(w, h int) []string {
 			branch = "—"
 		}
 		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + fit(workflow, max(8, w-25))
-		second := mutedStyle.Render("  " + fit(branch, max(8, w-36)) + " · trigger: " + fit(actor, 10) + " · " + shortAge(ref.item.UpdatedAt))
+		second := branchDataStyle.Render("  " + fit(branch, max(8, w-36))) + " " +
+			peopleStyle.Render("· trigger: " + fit(actor, 10)) + " " +
+			timeStyle.Render("· " + shortAge(ref.item.UpdatedAt))
 		if i == m.runCursor {
 			first = selectedRow(first, w)
 			second = selectedRow(second, w)
