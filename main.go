@@ -1137,19 +1137,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "r":
-			if m.detail {
-				if r := m.selectedRepo(); r != nil {
-					m.lastErr = "Refreshing " + m.repoLabel(r) + "…"
-					delete(m.retryAt, "runs:"+r.FullName)
-					delete(m.retryAt, "branches:"+r.FullName)
-					m.queueRun(r.FullName, true)
-					cmds := m.drainRunQueue()
-					if len(cmds) > 0 {
-						return m, tea.Batch(cmds...)
-					}
-					return m, nil
-				}
-			}
 			return m, tea.Batch(m.refreshAll(false)...)
 		case "/":
 			m.focus = 1
