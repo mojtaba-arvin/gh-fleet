@@ -1098,8 +1098,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item := m.selectedInFlight(); item != nil && item.URL != "" {
 						_ = openURL(item.URL)
 					}
-				} else if item := m.selectedAttention(); item != nil && item.URL != "" {
-					_ = openURL(item.URL)
+				} else if repo := m.selectedRepo(); repo != nil && repo.URL != "" {
+					_ = openURL(repo.URL)
 				}
 			case 1:
 				if m.detail {
@@ -1149,8 +1149,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item := m.selectedInFlight(); item != nil && item.URL != "" {
 						_ = openURL(item.URL)
 					}
-				} else if item := m.selectedAttention(); item != nil && item.URL != "" {
-					_ = openURL(item.URL)
+				} else if repo := m.selectedRepo(); repo != nil && repo.URL != "" {
+					_ = openURL(repo.URL)
 				}
 			case 1:
 				if r := m.selectedRepo(); r != nil {
@@ -1171,8 +1171,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item := m.selectedInFlight(); item != nil && item.RunID != 0 {
 						return m, m.openRunLogs(item.Repo, item.RunID)
 					}
-				} else if item := m.selectedAttention(); item != nil && item.RunID != 0 {
-					return m, m.openRunLogs(item.Repo, item.RunID)
+				} else if repo := m.selectedRepo(); repo != nil {
+					if item := latestRun(*repo); item != nil && item.ID != 0 {
+						return m, m.openRunLogs(repo.FullName, item.ID)
+					}
 				}
 			}
 			if m.focus == 2 {
@@ -1190,7 +1192,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.overviewPane == 1 {
 					m.inFlightCursor = 0
 				} else {
-					m.attentionCursor = 0
+					m.cursor = 0
 				}
 			case 1:
 				if m.detail {
@@ -1207,7 +1209,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.overviewPane == 1 {
 					m.inFlightCursor = max(0, len(m.inFlightItems())-1)
 				} else {
-					m.attentionCursor = max(0, len(m.attentionItems())-1)
+					m.cursor = max(0, len(m.visibleRepos())-1)
 				}
 			case 1:
 				if m.detail {
@@ -1494,7 +1496,7 @@ func (m *model) move(n int) {
 		if m.overviewPane == 1 {
 			m.inFlightCursor = max(0, min(len(m.inFlightItems())-1, m.inFlightCursor+n))
 		} else {
-			m.attentionCursor = max(0, min(len(m.attentionItems())-1, m.attentionCursor+n))
+			m.cursor = max(0, min(len(m.visibleRepos())-1, m.cursor+n))
 		}
 	case 1:
 		if m.detail {
@@ -3614,7 +3616,7 @@ func (m model) renderFooter(w int) string {
 	switch m.focus {
 	case 0:
 		if m.overviewPane == 0 {
-			left = "↑↓ attention · → in flight · Enter open · l logs · r refresh · R force · C cache"
+			left = "↑↓ repos · → in flight · Enter open · l latest CI logs · r refresh · R force · C cache"
 		} else {
 			left = "↑↓ in flight · ← attention · Enter open · l logs · r refresh · R force · C cache"
 		}
@@ -3630,7 +3632,7 @@ func (m model) renderFooter(w int) string {
 		switch m.focus {
 		case 0:
 			if m.overviewPane == 0 {
-				left = "↑↓ attention · → waiting · r refresh · R force · C cache"
+				left = "↑↓ repos · → waiting · Enter open · r/R/C refresh"
 			} else {
 				left = "↑↓ waiting · ← attention · Enter open · r/R/C refresh"
 			}
