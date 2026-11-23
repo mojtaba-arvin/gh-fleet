@@ -2478,7 +2478,6 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 	if w < 70 {
 		lastGroup := -1
 		selectedLine := 1
-		repoIndex := 0
 		for i, repo := range repos {
 			group := repoGroupRank(*repo, now)
 			if group != lastGroup {
@@ -2495,8 +2494,9 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 			if !parseTime(repo.PushedAt).IsZero() {
 				push = shortAge(repo.PushedAt) + " ago"
 			}
-			first := titleStyle.Render(m.repoLabel(repo)) + "  " + repoStateStyle(repoPortfolioState(*repo, now)).Render(repoPortfolioState(*repo, now))
-			second := timeStyle.Render("PUSH " + push) + mutedStyle.Render("  ·  ") + ciStyle(repoCI(*repo)).Render("CI " + repoCI(*repo)) +
+			state, ci := repoPortfolioState(*repo, now), repoCI(*repo)
+			first := titleStyle.Render(m.repoLabel(repo)) + "  " + repoStateStyle(state).Render(state)
+			second := timeStyle.Render("PUSH " + push) + mutedStyle.Render("  ·  ") + ciStyle(ci).Render("CI " + ci) +
 				mutedStyle.Render(fmt.Sprintf("  ·  PR %d · ISSUES %d", repo.PRs, repo.Issues))
 			if i == m.cursor {
 				first, second = selectedRow(fit(first, w), w), selectedRow(fit(second, w), w)
@@ -2506,9 +2506,7 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 				}
 			}
 			rows = append(rows, fit(first, w), fit(second, w))
-			repoIndex++
 		}
-		_ = repoIndex
 		start := max(0, min(selectedLine-max(0, (h-2)/2), max(0, len(rows)-h)))
 		visible := rows[start:min(len(rows), start+h)]
 		for len(visible) < h {
