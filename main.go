@@ -3599,9 +3599,9 @@ func (m model) renderActions(w, h int) []string {
 			branch = "—"
 		}
 		first := stateStyle(ref.item).Render(fit(stateText(ref.item), 8)) + " " + titleStyle.Render(fit(ref.short, 14)) + " " + fit(workflow, max(8, w-25))
-		second := branchDataStyle.Render("  " + fit(branch, max(8, w-36))) + " " +
-			peopleStyle.Render("· trigger: " + fit(actor, 10)) + " " +
-			timeStyle.Render("· " + shortAge(ref.item.UpdatedAt))
+		second := branchDataStyle.Render("  "+fit(branch, max(8, w-36))) + " " +
+			peopleStyle.Render("· trigger: "+fit(actor, 10)) + " " +
+			timeStyle.Render("· "+shortAge(ref.item.UpdatedAt))
 		if i == m.runCursor {
 			first = selectedRow(first, w)
 			second = selectedRow(second, w)
