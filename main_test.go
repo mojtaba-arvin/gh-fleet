@@ -644,17 +644,19 @@ func TestRepositoryPortfolioGroupsByCIAndPushRecency(t *testing.T) {
 		repo repository
 		want int
 	}{
-		{name: "running CI outranks stale push", repo: repository{PushedAt: now.Add(-45*24*time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}}, want: 0},
+		{name: "running CI outranks stale push", repo: repository{PushedAt: now.Add(-45 * 24 * time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}}, want: 0},
 		{name: "queued CI outranks recent push", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "queued"}}}, want: 1},
-		{name: "fresh push", repo: repository{PushedAt: now.Add(-2*time.Hour).Format(time.RFC3339)}, want: 2},
-		{name: "weekly activity", repo: repository{PushedAt: now.Add(-3*24*time.Hour).Format(time.RFC3339)}, want: 3},
-		{name: "quiet", repo: repository{PushedAt: now.Add(-14*24*time.Hour).Format(time.RFC3339)}, want: 4},
-		{name: "dormant", repo: repository{PushedAt: now.Add(-45*24*time.Hour).Format(time.RFC3339)}, want: 5},
+		{name: "fresh push", repo: repository{PushedAt: now.Add(-2 * time.Hour).Format(time.RFC3339)}, want: 2},
+		{name: "weekly activity", repo: repository{PushedAt: now.Add(-3 * 24 * time.Hour).Format(time.RFC3339)}, want: 3},
+		{name: "quiet", repo: repository{PushedAt: now.Add(-14 * 24 * time.Hour).Format(time.RFC3339)}, want: 4},
+		{name: "dormant", repo: repository{PushedAt: now.Add(-45 * 24 * time.Hour).Format(time.RFC3339)}, want: 5},
 		{name: "unknown push", repo: repository{}, want: 6},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := repoGroupRank(tc.repo, now); got != tc.want { t.Fatalf("group rank = %d, want %d", got, tc.want) }
+			if got := repoGroupRank(tc.repo, now); got != tc.want {
+				t.Fatalf("group rank = %d, want %d", got, tc.want)
+			}
 		})
 	}
 }
@@ -662,26 +664,36 @@ func TestRepositoryPortfolioGroupsByCIAndPushRecency(t *testing.T) {
 func TestRepositoryHealthPanelShowsPushAgeAndCIIndependently(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{width: 120, cursor: 0, repos: []repository{
-		{FullName: "acme/active", Name: "active", PushedAt: now.Add(-2*time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}},
-		{FullName: "acme/dormant", Name: "dormant", PushedAt: now.Add(-45*24*time.Hour).Format(time.RFC3339)},
+		{FullName: "acme/active", Name: "active", PushedAt: now.Add(-2 * time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}},
+		{FullName: "acme/dormant", Name: "dormant", PushedAt: now.Add(-45 * 24 * time.Hour).Format(time.RFC3339)},
 	}}
 	view := strings.Join(m.renderAttentionRows(118, 8), "\n")
 	for _, want := range []string{"LAST PUSH", "CI STATE", "active", "dormant", "RUNNING", "45d ago"} {
-		if !strings.Contains(view, want) { t.Errorf("repository health panel missing %q: %s", want, view) }
+		if !strings.Contains(view, want) {
+			t.Errorf("repository health panel missing %q: %s", want, view)
+		}
 	}
 }
 
 func TestInFlightRowsExposeStructuredWorkflowMetadata(t *testing.T) {
 	m := model{width: 110, height: 10, overviewPane: 1, repos: []repository{{
 		FullName: "acme/api",
-		Runs: []run{{ID: 91, Name: "integration-tests", Status: "in_progress", StartedAt: time.Now().Add(-12*time.Minute).Format(time.RFC3339), Branch: "feature/payments", Event: "pull_request", Actor: struct{ Login string `json:"login"` }{Login: "octocat"}}},
+		Runs: []run{{
+			ID: 91, Name: "integration-tests", Status: "in_progress",
+			StartedAt: time.Now().Add(-12 * time.Minute).Format(time.RFC3339),
+			Branch: "feature/payments", Event: "pull_request",
+			Actor: struct {
+				Login string `json:"login"`
+			}{Login: "octocat"},
+		}},
 	}}}
 	view := strings.Join(m.renderInFlightRows(108, 8), "\n")
 	for _, want := range []string{"RUNNING", "api", "integration-tests", "BRANCH feature/payments", "EVENT pull_request", "TRIGGER octocat", "RUN #91"} {
-		if !strings.Contains(view, want) { t.Errorf("in-flight row missing %q: %s", want, view) }
+		if !strings.Contains(view, want) {
+			t.Errorf("in-flight row missing %q: %s", want, view)
+		}
 	}
 }
-
 
 func TestRepoCIExplainsMissingAndInactiveWorkflowState(t *testing.T) {
 	if got := repoCI(repository{}); got != "NO RECENT CI" {
@@ -692,16 +704,19 @@ func TestRepoCIExplainsMissingAndInactiveWorkflowState(t *testing.T) {
 	}
 }
 
-
 func TestOverviewHealthSelectionMovesRepositoryCursor(t *testing.T) {
 	m := model{
 		focus: 0, overviewPane: 0, cursor: 0,
 		repos: []repository{{FullName: "acme/one", Name: "one"}, {FullName: "acme/two", Name: "two"}},
 	}
 	m.move(1)
-	if m.cursor != 1 { t.Fatalf("health panel cursor = %d, want repository cursor 1", m.cursor) }
+	if m.cursor != 1 {
+		t.Fatalf("health panel cursor = %d, want repository cursor 1", m.cursor)
+	}
 	m.overviewPane = 1
 	m.inFlightCursor = 0
 	m.move(1)
-	if m.cursor != 1 { t.Fatalf("in-flight navigation changed repository cursor: %d", m.cursor) }
+	if m.cursor != 1 {
+		t.Fatalf("in-flight navigation changed repository cursor: %d", m.cursor)
+	}
 }
