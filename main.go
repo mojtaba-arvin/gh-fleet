@@ -1870,7 +1870,9 @@ func width(s string) int { return lipgloss.Width(s) }
 
 // selectedRow paints the full terminal row, including trailing blank cells.
 func selectedRow(s string, w int) string {
-	return selectStyle.Width(w).Render(fit(s, w))
+	// Nested ANSI foreground styles can reset an outer background. Strip them
+	// for the selected row so the selection background is continuous edge-to-edge.
+	return selectStyle.Width(w).Render(fit(ansi.Strip(s), w))
 }
 
 func fit(s string, n int) string {
