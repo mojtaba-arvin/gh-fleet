@@ -2475,6 +2475,47 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		return rows[:min(len(rows), h)]
 	}
 	now := time.Now()
+	if w < 70 {
+		lastGroup := -1
+		selectedLine := 1
+		repoIndex := 0
+		for i, repo := range repos {
+			group := repoGroupRank(*repo, now)
+			if group != lastGroup {
+				count := 0
+				for _, candidate := range repos {
+					if repoGroupRank(*candidate, now) == group {
+						count++
+					}
+				}
+				rows = append(rows, groupStyle(group).Render(fit(fmt.Sprintf("▸ %s · %d", repoGroupLabel(group), count), w)))
+				lastGroup = group
+			}
+			push := "NO PUSH DATA"
+			if !parseTime(repo.PushedAt).IsZero() {
+				push = shortAge(repo.PushedAt) + " ago"
+			}
+			first := titleStyle.Render(m.repoLabel(repo)) + "  " + repoStateStyle(repoPortfolioState(*repo, now)).Render(repoPortfolioState(*repo, now))
+			second := timeStyle.Render("PUSH " + push) + mutedStyle.Render("  ·  ") + ciStyle(repoCI(*repo)).Render("CI " + repoCI(*repo)) +
+				mutedStyle.Render(fmt.Sprintf("  ·  PR %d · ISSUES %d", repo.PRs, repo.Issues))
+			if i == m.cursor {
+				first, second = selectedRow(fit(first, w), w), selectedRow(fit(second, w), w)
+				selectedLine = len(rows)
+				if len(rows) > 0 && strings.Contains(rows[len(rows)-1], "▸ ") {
+					selectedLine = len(rows) - 1
+				}
+			}
+			rows = append(rows, fit(first, w), fit(second, w))
+			repoIndex++
+		}
+		_ = repoIndex
+		start := max(0, min(selectedLine-max(0, (h-2)/2), max(0, len(rows)-h)))
+		visible := rows[start:min(len(rows), start+h)]
+		for len(visible) < h {
+			visible = append(visible, "")
+		}
+		return visible[:min(len(visible), h)]
+	}
 	nameW := max(12, min(28, w/3))
 	pushW, stateW, ciW, prW, issueW := 10, 15, 12, 4, 6
 	used := nameW + pushW + stateW + ciW + prW + issueW + 6
