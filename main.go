@@ -959,12 +959,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "R" {
-			return m, tea.Batch(m.refreshAll(true)...)
-		}
-		if msg.String() == "C" {
-			return m, tea.Batch(m.clearCacheAndRefresh()...)
-		}
 		if m.filtering {
 			switch msg.String() {
 			case "esc":
@@ -984,6 +978,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
+		if msg.String() == "R" {
+			return m, tea.Batch(m.refreshAll(true)...)
+		}
+		if msg.String() == "C" {
+			return m, tea.Batch(m.clearCacheAndRefresh()...)
 		}
 		if m.logMode {
 			switch msg.String() {
@@ -1448,6 +1448,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // refreshAll bypasses the normal refresh schedule. A forced refresh clears ETags
 // so GitHub returns fresh representations instead of responding with HTTP 304.
 func (m *model) refreshAll(force bool) []tea.Cmd {
+	if m.busyRepos {
+		m.lastErr = "Repository refresh already in progress; keeping the current snapshot"
+		return nil
+	}
 	if force {
 		m.api.mu.Lock()
 		m.api.etags = make(map[string]string)
@@ -3643,7 +3647,7 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	left := "↑↓ select · ←/→ queues · Enter open · l logs · 1–3 views · ? help · q quit"
+	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
 		if m.overviewPane == 0 {
@@ -3652,12 +3656,12 @@ func (m model) renderFooter(w int) string {
 			left = "↑↓ in flight · ← attention · Enter open · l logs · o browser · 1–3 views · ? help"
 		}
 	case 1:
-		left = "↑↓ repos · Enter detail · / filter · o browser · r refresh · 1–3 views · ? help"
+		left = "↑↓ repos · Enter detail · / filter · r refresh · R force · C clear cache · o browser"
 		if m.detail {
 			left = "↑↓ PRs · Enter/o open · Esc portfolio · r refresh · ? help"
 		}
 	case 2:
-		left = "↑↓ runs · Enter/l logs · o browser · r refresh · ? help · q quit"
+		left = "↑↓ runs · Enter/l logs · o browser · r refresh · R force · C clear cache · q quit"
 	}
 	if w < 70 {
 		switch m.focus {
@@ -3720,7 +3724,7 @@ func (m model) logView() string {
 	for len(body) < maxLines {
 		body = append(body, "")
 	}
-	footer := "u refresh now  w toggle live polling  ↑↓/PgUp/PgDn scroll  Esc back"
+	footer := "u refresh logs  w toggle live polling  r refresh data  R force  C clear cache  ↑↓/PgUp/PgDn scroll  Esc back"
 	if m.logBusy {
 		footer = activeStyle.Render("Fetching latest logs…  " + footer)
 	} else if m.logErr != "" {
