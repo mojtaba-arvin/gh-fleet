@@ -2585,9 +2585,27 @@ func (m model) renderCIHealthChart(w int) string {
 	if total == 0 {
 		return mutedStyle.Render(fit("CI SIGNAL // waiting for workflow samples", w))
 	}
-	barWidth := max(8, min(36, w-4))
 	counts := []int{passed, failed, running, waiting}
 	styles := []lipgloss.Style{goodStyle, badStyle, activeStyle, branchStyle}
+	if w < 70 {
+		label := fmt.Sprintf("CI P%d F%d R%d W%d ", passed, failed, running, waiting)
+		barWidth := max(4, min(12, w-width(label)-1))
+		var bar strings.Builder
+		for i, count := range counts {
+			segments := 0
+			if count > 0 {
+				segments = max(1, count*barWidth/total)
+			}
+			bar.WriteString(styles[i].Render(strings.Repeat("█", segments)))
+		}
+		return fit(label+bar.String(), w)
+	}
+	legend := goodStyle.Render(fmt.Sprintf(" PASS %d ", passed)) +
+		badStyle.Render(fmt.Sprintf(" FAIL %d ", failed)) +
+		activeStyle.Render(fmt.Sprintf(" RUN %d ", running)) +
+		branchStyle.Render(fmt.Sprintf(" WAIT %d ", waiting))
+	prefix := mutedStyle.Render("CI SIGNAL // loaded sample  ")
+	barWidth := max(4, min(36, w-width(prefix)-width(legend)-2))
 	var bar strings.Builder
 	for i, count := range counts {
 		segments := 0
@@ -2596,11 +2614,7 @@ func (m model) renderCIHealthChart(w int) string {
 		}
 		bar.WriteString(styles[i].Render(strings.Repeat("█", segments)))
 	}
-	legend := goodStyle.Render(fmt.Sprintf(" PASS %d ", passed)) +
-		badStyle.Render(fmt.Sprintf(" FAIL %d ", failed)) +
-		activeStyle.Render(fmt.Sprintf(" RUN %d ", running)) +
-		branchStyle.Render(fmt.Sprintf(" WAIT %d ", waiting))
-	return fit(mutedStyle.Render("CI SIGNAL // loaded sample  ")+bar.String()+"  "+legend, w)
+	return fit(prefix+bar.String()+"  "+legend, w)
 }
 
 func (m model) ciQueueView() string {
