@@ -489,8 +489,8 @@ func TestRepositoryPortfolioDoesNotTreatCommitVolumeAsHealth(t *testing.T) {
 		FullName: "acme/quiet", PushedAt: now.Add(-40 * 24 * time.Hour).Format(time.RFC3339),
 		Commits: []commitInfo{{SHA: "many", Date: now.Format(time.RFC3339)}},
 	}
-	if got := repoPortfolioState(repo, now); got != "QUIET" {
-		t.Fatalf("portfolio state = %q, want QUIET; commit volume must not override repository delivery state", got)
+	if got := repoPortfolioState(repo, now); got != "DORMANT >30D" {
+		t.Fatalf("portfolio state = %q, want DORMANT >30D; commit volume must not override repository delivery state", got)
 	}
 }
 
