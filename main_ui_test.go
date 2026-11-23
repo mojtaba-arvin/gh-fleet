@@ -1,0 +1,73 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func TestSelectedRowFillsEntireTerminalWidth(t *testing.T) {
+	const width = 96
+	got := selectedRow("CI FAILED  api  unit-tests", width)
+	if actual := lipglossWidth(got); actual != width {
+		t.Fatalf("selected row width = %d, want %d", actual, width)
+	}
+}
+
+func lipglossWidth(value string) int {
+	return width(value)
+}
+
+func TestCIHealthChartShowsCopyableStatusBreakdown(t *testing.T) {
+	m := model{width: 100, repos: []repository{{Runs: []run{
+		{Status: "completed", Conclusion: "success"},
+		{Status: "completed", Conclusion: "failure"},
+		{Status: "in_progress"},
+		{Status: "queued"},
+	}}}}
+	chart := m.renderCIHealthChart(100)
+	for _, want := range []string{"CI SIGNAL", "PASS 1", "FAIL 1", "RUN 1", "WAIT 1"} {
+		if !strings.Contains(chart, want) {
+			t.Errorf("CI chart missing %q: %q", want, chart)
+		}
+	}
+}
+
+func TestForceRefreshAndCacheClearKeys(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "cache.json")
+	if err := os.WriteFile(cachePath, []byte("cached"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := &apiClient{
+		etags: map[string]string{"repos": "etag-1"},
+		cache: map[string][]run{"acme/api": {{ID: 7}}},
+	}
+	m := model{
+		api: client, cachePath: cachePath,
+		busyRuns: map[string]bool{}, busyBranches: map[string]bool{},
+		queuedRuns: map[string]bool{}, retryAt: map[string]time.Time{},
+		failures: map[string]int{}, animationEnabled: false,
+	}
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	got := updated.(model)
+	if cmd == nil || !got.busyRepos {
+		t.Fatal("R did not start a force refresh")
+	}
+	if len(client.etags) != 0 || len(client.cache) != 0 {
+		t.Fatalf("force refresh retained ETags/cache: etags=%v cache=%v", client.etags, client.cache)
+	}
+
+	got.busyRepos = false
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
+	got = updated.(model)
+	if cmd == nil || !got.busyRepos {
+		t.Fatal("C did not start a cache-clearing refresh")
+	}
+	if _, err := os.Stat(cachePath); !os.IsNotExist(err) {
+		t.Fatalf("cache file still exists after C: err=%v", err)
+	}
+}
