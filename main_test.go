@@ -719,3 +719,18 @@ func TestOverviewHealthSelectionMovesRepositoryCursor(t *testing.T) {
 		t.Fatalf("in-flight navigation changed repository cursor: %d", m.cursor)
 	}
 }
+
+
+func TestCompactRepositoryPortfolioKeepsCIVisibleInsideGroups(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{cursor: 0, repos: []repository{
+		{FullName: "acme/running", Name: "running", PushedAt: now.Add(-40 * 24 * time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}},
+		{FullName: "acme/dormant", Name: "dormant", PushedAt: now.Add(-45 * 24 * time.Hour).Format(time.RFC3339)},
+	}}
+	view := strings.Join(m.renderPortfolioRepos(60, 12), "\n")
+	for _, want := range []string{"CI RUNNING", "DORMANT", "running", "dormant", "CI 1 RUNNING", "CI NO RECENT CI"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("compact repository portfolio missing %q: %s", want, view)
+		}
+	}
+}
