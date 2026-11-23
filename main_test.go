@@ -691,3 +691,17 @@ func TestRepoCIExplainsMissingAndInactiveWorkflowState(t *testing.T) {
 		t.Fatalf("completed CI state = %q, want success", got)
 	}
 }
+
+
+func TestOverviewHealthSelectionMovesRepositoryCursor(t *testing.T) {
+	m := model{
+		focus: 0, overviewPane: 0, cursor: 0,
+		repos: []repository{{FullName: "acme/one", Name: "one"}, {FullName: "acme/two", Name: "two"}},
+	}
+	m.move(1)
+	if m.cursor != 1 { t.Fatalf("health panel cursor = %d, want repository cursor 1", m.cursor) }
+	m.overviewPane = 1
+	m.inFlightCursor = 0
+	m.move(1)
+	if m.cursor != 1 { t.Fatalf("in-flight navigation changed repository cursor: %d", m.cursor) }
+}
