@@ -1480,6 +1480,10 @@ func (m *model) refreshAll(force bool) []tea.Cmd {
 // clearCacheAndRefresh removes the on-disk snapshot and ETags while retaining
 // the currently rendered data until a replacement snapshot has been fetched.
 func (m *model) clearCacheAndRefresh() []tea.Cmd {
+	if m.busyRepos {
+		m.lastErr = "Repository refresh already in progress; cache was not cleared"
+		return nil
+	}
 	if m.cachePath != "" {
 		if err := os.Remove(m.cachePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			m.lastErr = "Could not clear cache: " + err.Error()
@@ -2401,9 +2405,6 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		for i, repo := range repos {
 			state := repoPortfolioState(*repo, time.Now())
 			line := titleStyle.Render(shortName(repo.FullName)) + "  " + repoStateStyle(state).Render(state)
-			if i == m.cursor {
-				line = selectStyle.Width(w).Render(fit(line, w))
-			}
 			detail := fmt.Sprintf("PR %d · issues %d · push %s · %s", repo.PRs, repo.Issues, fallback(shortAge(repo.PushedAt), "—"), repoCI(*repo))
 			if i == m.cursor {
 				line = selectedRow(line, w)
@@ -3651,14 +3652,14 @@ func (m model) renderFooter(w int) string {
 	switch m.focus {
 	case 0:
 		if m.overviewPane == 0 {
-			left = "↑↓ attention · → in flight · Enter open · l logs · 1–3 views · ? help"
+			left = "↑↓ attention · → in flight · Enter open · l logs · r refresh · R force · C cache"
 		} else {
-			left = "↑↓ in flight · ← attention · Enter open · l logs · o browser · 1–3 views · ? help"
+			left = "↑↓ in flight · ← attention · Enter open · l logs · r refresh · R force · C cache"
 		}
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · r refresh · R force · C clear cache · o browser"
 		if m.detail {
-			left = "↑↓ PRs · Enter/o open · Esc portfolio · r refresh · ? help"
+			left = "↑↓ PRs · Enter/o open · r refresh · R force · C cache · Esc back"
 		}
 	case 2:
 		left = "↑↓ runs · Enter/l logs · o browser · r refresh · R force · C clear cache · q quit"
@@ -3667,17 +3668,17 @@ func (m model) renderFooter(w int) string {
 		switch m.focus {
 		case 0:
 			if m.overviewPane == 0 {
-				left = "↑↓ attention · → waiting · Enter open · ? help"
+				left = "↑↓ attention · → waiting · r refresh · R force · C cache"
 			} else {
-				left = "↑↓ waiting · ← attention · Enter open · l logs · ? help"
+				left = "↑↓ waiting · ← attention · Enter open · r/R/C refresh"
 			}
 		case 1:
-			left = "↑↓ select · Enter detail/open · Esc back"
+			left = "↑↓ select · Enter detail · r/R/C refresh · Esc"
 			if m.detail {
-				left = "↑↓ PRs · Enter open · Esc back"
+				left = "↑↓ PRs · Enter open · r/R/C refresh · Esc"
 			}
 		case 2:
-			left = "↑↓ runs · Enter logs · Esc back"
+			left = "↑↓ runs · Enter logs · r/R/C refresh · Esc"
 		}
 	}
 	if m.filtering {
@@ -3724,7 +3725,7 @@ func (m model) logView() string {
 	for len(body) < maxLines {
 		body = append(body, "")
 	}
-	footer := "u refresh logs  w toggle live polling  r refresh data  R force  C clear cache  ↑↓/PgUp/PgDn scroll  Esc back"
+	footer := "u refresh logs  w live polling  R force data  C clear cache  ↑↓/PgUp/PgDn scroll  Esc back"
 	if m.logBusy {
 		footer = activeStyle.Render("Fetching latest logs…  " + footer)
 	} else if m.logErr != "" {
