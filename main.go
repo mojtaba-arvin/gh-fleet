@@ -1846,6 +1846,7 @@ var (
 	timeStyle       = lipgloss.NewStyle().Foreground(blue)
 	actionStyle     = lipgloss.NewStyle().Foreground(teal).Bold(true)
 	selectStyle     = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
+)
 
 func openURL(raw string) error {
 	parsed, err := url.ParseRequestURI(raw)
