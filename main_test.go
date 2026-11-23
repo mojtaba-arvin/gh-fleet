@@ -636,7 +636,6 @@ func TestBusyHeaderUsesMotionOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
-
 func TestRepositoryPortfolioGroupsByCIAndPushRecency(t *testing.T) {
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -681,7 +680,7 @@ func TestInFlightRowsExposeStructuredWorkflowMetadata(t *testing.T) {
 		Runs: []run{{
 			ID: 91, Name: "integration-tests", Status: "in_progress",
 			StartedAt: time.Now().Add(-12 * time.Minute).Format(time.RFC3339),
-			Branch: "feature/payments", Event: "pull_request",
+			Branch:    "feature/payments", Event: "pull_request",
 			Actor: struct {
 				Login string `json:"login"`
 			}{Login: "octocat"},
