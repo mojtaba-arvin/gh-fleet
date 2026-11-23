@@ -720,7 +720,6 @@ func TestOverviewHealthSelectionMovesRepositoryCursor(t *testing.T) {
 	}
 }
 
-
 func TestCompactRepositoryPortfolioKeepsCIVisibleInsideGroups(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{cursor: 0, repos: []repository{
