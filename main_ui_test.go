@@ -73,7 +73,6 @@ func TestForceRefreshAndCacheClearKeys(t *testing.T) {
 	}
 }
 
-
 func TestSelectedRowStripsNestedANSIAndFillsFullWidth(t *testing.T) {
 	const width = 96
 	colored := titleStyle.Render("repo") + " " + badStyle.Render("FAILED")
