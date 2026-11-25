@@ -857,9 +857,13 @@ func TestCIIdleRepositoriesRemainVisibleInHealthPanel(t *testing.T) {
 	m := model{width: 120, height: 30, repos: repos}
 	view := strings.Join(m.renderAttentionRows(118, 10), "\n")
 	for i := range repos {
-		if !strings.Contains(view, repos[i].FullName) { t.Errorf("repository health omitted %s:\n%s", repos[i].FullName, view) }
+		if !strings.Contains(view, repos[i].FullName) {
+			t.Errorf("repository health omitted %s:\n%s", repos[i].FullName, view)
+		}
 	}
-	if !strings.Contains(view, activeStyle.Render("acme/repo-0")) { t.Fatalf("CI-idle repository name was not highlighted yellow:\n%s", view) }
+	if !strings.Contains(view, activeStyle.Render("acme/repo-0")) {
+		t.Fatalf("CI-idle repository name was not highlighted yellow:\n%s", view)
+	}
 }
 
 func TestRightShiftAloneCopiesSelectedIdleRepositoryURL(t *testing.T) {
@@ -906,10 +910,14 @@ func TestOverviewHasTwoPanesAndHighlightsCIIdleRepositories(t *testing.T) {
 	}}
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
-	if m.overviewPane != 1 { t.Fatalf("right navigation selected pane %d, want in-flight pane 1", m.overviewPane) }
+	if m.overviewPane != 1 {
+		t.Fatalf("right navigation selected pane %d, want in-flight pane 1", m.overviewPane)
+	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
-	if m.overviewPane != 0 { t.Fatalf("right navigation did not wrap to repository health: %d", m.overviewPane) }
+	if m.overviewPane != 0 {
+		t.Fatalf("right navigation did not wrap to repository health: %d", m.overviewPane)
+	}
 	view := strings.Join(m.renderAttentionRows(118, 10), "\n")
 	if !strings.Contains(view, activeStyle.Render("acme/newer")) || !strings.Contains(view, activeStyle.Render("acme/older")) {
 		t.Fatalf("recently pushed repositories are not highlighted in repository health:\n%s", view)
