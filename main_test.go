@@ -820,12 +820,12 @@ func TestIdleRepositoriesUseSeparatePushAndCIInactivityWindows(t *testing.T) {
 func TestIdleRepositoryUsesPushTimestampNotRecentPROrCIUpdate(t *testing.T) {
 	now := time.Now().UTC()
 	repo := repository{
-		PushedAt: now.Add(-2*time.Minute).Format(time.RFC3339),
+		FullName: "acme/recent-push", PushedAt: now.Add(-2*time.Minute).Format(time.RFC3339),
 		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)}},
 		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-20*time.Minute).Format(time.RFC3339)}},
 	}
 	got := idleRepositories([]repository{repo}, now)
-	if len(got) != 1 || got[0].FullName != "" {
+	if len(got) != 1 || got[0].FullName != "acme/recent-push" {
 		t.Fatalf("recently pushed repository with idle CI should be listed: %+v", got)
 	}
 }
