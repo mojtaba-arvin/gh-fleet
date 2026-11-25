@@ -837,7 +837,7 @@ func TestIdleRepositoryUsesPushTimestampNotRecentPROrCIUpdate(t *testing.T) {
 	now := time.Now().UTC()
 	repo := repository{
 		FullName: "acme/recent-push", PushedAt: now.Add(-2 * time.Minute).Format(time.RFC3339),
-		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)}},
+		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-time.Minute).Format(time.RFC3339)}},
 		Runs:         []run{{Status: "completed", UpdatedAt: now.Add(-20 * time.Minute).Format(time.RFC3339)}},
 	}
 	got := idleRepositories([]repository{repo}, now)
