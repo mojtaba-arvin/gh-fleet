@@ -130,3 +130,13 @@ The Repositories view groups projects in this order:
 Each group retains keyboard navigation through the same repository cursor. A selected row uses a continuous full-width selection background; nested ANSI foreground styles are stripped on that selected row because they otherwise interrupt the background fill.
 
 Bubble Tea mouse-cell reporting is intentionally disabled. It intercepted native terminal mouse selection and made visible text difficult to copy. The interface remains keyboard-first; users can select and copy rendered text with their terminal's normal selection and copy shortcuts. The application does not claim to provide a cross-terminal clipboard API.
+
+## Idle repository queue and URL copy
+
+The Overview includes a separate **Idle Repositories** panel. A repository appears only when:
+- no GitHub Actions workflow is running or queued / waiting;
+- its latest known repository activity is more than 10 minutes old.
+
+For this panel, latest known activity is the newest of the repository push timestamp, loaded pull-request update timestamps, and loaded Actions run update timestamps. Repositories without a known activity timestamp are excluded rather than guessed. The panel is ordered from oldest activity to newest. This is a bounded operational definition based on the data gh-fleet already loads; it is not a claim to cover every issue or discussion event in GitHub.
+
+Use Left / Right to cycle Overview panels and Up / Down to select an idle repository. Enter or o opens its GitHub page. **Shift+Y** (uppercase `Y`) copies the full repository URL. A terminal does not normally send a key event for pressing Shift by itself, so a standalone Shift shortcut cannot be implemented portably; the uppercase-key chord is the reliable terminal interaction. macOS uses `pbcopy`; Linux supports `wl-copy`, `xclip`, or `xsel`; Windows uses `clip`.
