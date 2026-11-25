@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestDefaultDashboardRendersRepositoryHealthAndCIState(t *testing.T) {
@@ -26,7 +26,7 @@ func TestDefaultDashboardRendersRepositoryHealthAndCIState(t *testing.T) {
 			}},
 		}},
 	}
-	view := m.View()
+	view := m.viewContent()
 	for _, want := range []string{"DELIVERY OPERATIONS", "REPOSITORY HEALTH", "CI FAILED", "IN FLIGHT / WAITING"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
@@ -53,7 +53,7 @@ func TestNarrowDashboardShowsOperatorAttentionAndReviewQueue(t *testing.T) {
 			}},
 		}},
 	}
-	view := m.View()
+	view := m.viewContent()
 	for _, want := range []string{"Overview", "Repositories", "CI queue", "REPOSITORY HEALTH", "IN FLIGHT / WAITING", "REVIEW", "reviewer-a"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("narrow operator dashboard does not contain %q:\n%s", want, view)
@@ -81,12 +81,12 @@ func TestOverviewPanelsCanBeFocusedAndNavigated(t *testing.T) {
 		}},
 	}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
 	if m.overviewPane != 1 {
 		t.Fatalf("right arrow selected overview pane %d, want in-flight pane 1", m.overviewPane)
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(model)
 	if m.inFlightCursor != 1 {
 		t.Fatalf("down arrow moved in-flight cursor to %d, want 1", m.inFlightCursor)
@@ -95,7 +95,7 @@ func TestOverviewPanelsCanBeFocusedAndNavigated(t *testing.T) {
 	if selected == nil || selected.Kind != "REVIEW" {
 		t.Fatalf("selected in-flight item = %+v, want requested-review item", selected)
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	m = updated.(model)
 	if m.overviewPane != 0 {
 		t.Fatalf("left arrow selected overview pane %d, want attention pane 0", m.overviewPane)
@@ -110,7 +110,7 @@ func TestInFlightWorkflowLogsHaveAnExplicitShortcut(t *testing.T) {
 			URL: "https://github.com/acme/ops/actions/runs/41",
 		}}}},
 	}
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	got := updated.(model)
 	if !got.logMode || got.logRepo != "acme/ops" || got.logRun != 41 {
 		t.Fatalf("l did not open logs for the selected workflow: %+v", got)
@@ -126,7 +126,7 @@ func TestNumberKeysJumpToPrimaryViews(t *testing.T) {
 		key  rune
 		view int
 	}{{'1', 0}, {'2', 1}, {'3', 2}} {
-		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tc.key}})
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tc.key, Text: string(tc.key)})
 		m = updated.(model)
 		if m.focus != tc.view {
 			t.Errorf("key %q selected view %d, want %d", tc.key, m.focus, tc.view)
@@ -136,7 +136,7 @@ func TestNumberKeysJumpToPrimaryViews(t *testing.T) {
 
 func TestFilterBackspaceRemovesOneUnicodeRune(t *testing.T) {
 	m := model{width: 80, height: 24, focus: 1, filtering: true, filter: "café"}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	got := updated.(model).filter
 	if got != "caf" {
 		t.Fatalf("filter after backspace = %q, want %q", got, "caf")
@@ -467,7 +467,7 @@ func TestOverviewDefaultsToRepositoryAndWorkflowQueues(t *testing.T) {
 			}},
 		}},
 	}
-	view := m.View()
+	view := m.viewContent()
 	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "REPOSITORY HEALTH", "IN FLIGHT / WAITING", "ATTENTION 1"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
@@ -520,7 +520,7 @@ func TestPullRequestReviewTextUsesExplicitReviewEvidence(t *testing.T) {
 func TestOverviewResponsiveLayoutAtEightyColumns(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{width: 80, height: 24, lastRepos: now, repos: []repository{{FullName: "acme/api", Name: "api"}}}
-	view := m.View()
+	view := m.viewContent()
 	for _, want := range []string{"Overview", "Repositories", "CI queue", "REPOSITORY HEALTH"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("80-column overview missing %q:\n%s", want, view)
@@ -581,7 +581,7 @@ func TestRepositoryDetailShowsSelectablePullRequests(t *testing.T) {
 
 func TestCompactOverviewKeepsGitHubStateWithoutExternalSourceNag(t *testing.T) {
 	m := model{width: 40, height: 14, focus: 0}
-	view := m.View()
+	view := m.viewContent()
 	for _, want := range []string{"ATT 0", "REPOSITORY HEALTH"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("40-column overview missing %q:\n%s", want, view)
@@ -592,7 +592,7 @@ func TestCompactOverviewKeepsGitHubStateWithoutExternalSourceNag(t *testing.T) {
 func TestShortTerminalOverviewDoesNotOverflowHeight(t *testing.T) {
 	for _, height := range []int{10, 11, 12, 13, 16, 17} {
 		m := model{width: 80, height: height, focus: 0}
-		lines := strings.Split(m.View(), "\n")
+		lines := strings.Split(m.viewContent(), "\n")
 		if len(lines) > height {
 			t.Errorf("overview rendered %d lines at terminal height %d", len(lines), height)
 		}
@@ -754,11 +754,11 @@ func TestCountColorsUseSeverityBandsAndRequestedZeroSemantics(t *testing.T) {
 
 func TestKeyboardSpaceRefreshAndDeleteBack(t *testing.T) {
 	m := model{focus: 1, detail: true, width: 100, animationEnabled: false}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if updated.(model).detail != true {
 		t.Fatal("space refresh should not leave repository detail")
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
 	if updated.(model).detail {
 		t.Fatal("Delete should navigate back from repository detail")
 	}
@@ -791,36 +791,88 @@ func TestRepositoryHealthDoesNotRenderSignalColumn(t *testing.T) {
 	}
 }
 
-func TestIdleRepositoriesRequireNoRunningOrQueuedCIAndTenMinutesOfInactivity(t *testing.T) {
+func TestIdleRepositoriesUseSeparatePushAndCIInactivityWindows(t *testing.T) {
 	now := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	push := func(age time.Duration) string { return now.Add(-age).Format(time.RFC3339) }
+	ci := func(age time.Duration) string { return now.Add(-age).Format(time.RFC3339) }
 	repos := []repository{
-		{FullName: "acme/idle", PushedAt: now.Add(-30 * time.Minute).Format(time.RFC3339)},
-		{FullName: "acme/recent", PushedAt: now.Add(-5 * time.Minute).Format(time.RFC3339)},
-		{FullName: "acme/running", PushedAt: now.Add(-30 * time.Minute).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}},
-		{FullName: "acme/queued", PushedAt: now.Add(-30 * time.Minute).Format(time.RFC3339), Runs: []run{{Status: "queued"}}},
+		{FullName: "acme/open-ielts", PushedAt: push(2*time.Minute), Runs: []run{{Status: "completed", UpdatedAt: ci(30*time.Minute)}}},
+		{FullName: "acme/ai-service", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(11*time.Minute)}}},
+		{FullName: "acme/voxpipe", PushedAt: push(time.Hour)},
+		{FullName: "acme/gh-fleet", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(3*time.Hour)}}},
+		{FullName: "acme/helmet", PushedAt: push(time.Hour)},
+		{FullName: "acme/ci-recent", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(9*time.Minute)}}},
+		{FullName: "acme/ci-running", PushedAt: push(time.Hour), Runs: []run{{Status: "in_progress"}}},
+		{FullName: "acme/ci-queued", PushedAt: push(time.Hour), Runs: []run{{Status: "waiting"}}},
+		{FullName: "acme/too-old", PushedAt: push(4*24*time.Hour)},
+		{FullName: "acme/future", PushedAt: now.Add(time.Minute).Format(time.RFC3339)},
 		{FullName: "acme/unknown"},
-		{FullName: "acme/pr-active", PushedAt: now.Add(-30 * time.Minute).Format(time.RFC3339), PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-2 * time.Minute).Format(time.RFC3339)}}},
-		{FullName: "acme/ci-active", PushedAt: now.Add(-30 * time.Minute).Format(time.RFC3339), Runs: []run{{Status: "completed", UpdatedAt: now.Add(-3 * time.Minute).Format(time.RFC3339)}}},
 	}
 	got := idleRepositories(repos, now)
-	if len(got) != 1 || got[0].FullName != "acme/idle" {
-		names := make([]string, 0, len(got))
-		for _, repo := range got {
-			names = append(names, repo.FullName)
-		}
-		t.Fatalf("idle repositories = %v, want only acme/idle", names)
+	want := []string{"acme/open-ielts", "acme/ai-service", "acme/gh-fleet", "acme/helmet", "acme/voxpipe"}
+	if len(got) != len(want) { t.Fatalf("idle repositories = %d, want %d: %+v", len(got), len(want), got) }
+	for i, repo := range got {
+		if repo.FullName != want[i] { t.Fatalf("idle repository[%d] = %q, want %q", i, repo.FullName, want[i]) }
 	}
 }
 
-func TestIdleRepositoryActivityUsesLatestPushPROrActionsUpdate(t *testing.T) {
+func TestIdleRepositoryUsesPushTimestampNotRecentPROrCIUpdate(t *testing.T) {
 	now := time.Now().UTC()
 	repo := repository{
-		PushedAt:     now.Add(-time.Hour).Format(time.RFC3339),
-		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-20 * time.Minute).Format(time.RFC3339)}},
-		Runs:         []run{{Status: "completed", UpdatedAt: now.Add(-4 * time.Minute).Format(time.RFC3339)}},
+		PushedAt: now.Add(-2*time.Minute).Format(time.RFC3339),
+		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)}},
+		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-20*time.Minute).Format(time.RFC3339)}},
 	}
-	if got := repoLastActivity(repo); !got.Equal(parseTime(repo.Runs[0].UpdatedAt)) {
-		t.Fatalf("last activity = %s, want latest Actions update %s", got, repo.Runs[0].UpdatedAt)
+	got := idleRepositories([]repository{repo}, now)
+	if len(got) != 1 || got[0].FullName != "" {
+		t.Fatalf("recently pushed repository with idle CI should be listed: %+v", got)
+	}
+}
+
+func TestIdleRepositoryPanelShowsFiveRowsAtThirtyTerminalRows(t *testing.T) {
+	now := time.Now().UTC()
+	repos := make([]repository, 5)
+	for i := range repos {
+		repos[i] = repository{FullName: fmt.Sprintf("acme/repo-%d", i), PushedAt: now.Add(-time.Duration(i+1)*time.Hour).Format(time.RFC3339)}
+	}
+	m := model{width: 120, height: 30, repos: repos}
+	view := m.viewContent()
+	for i := range repos {
+		if !strings.Contains(view, repos[i].FullName) { t.Errorf("overview omitted %s:\n%s", repos[i].FullName, view) }
+	}
+}
+
+func TestRightShiftAloneCopiesSelectedIdleRepositoryURL(t *testing.T) {
+	m := model{
+		focus: 0, overviewPane: 2, idleCursor: 0, rightShiftSupported: true,
+		repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}},
+	}
+	var copied string
+	m.clipboardCopy = func(value string) error { copied = value; return nil }
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRightShift})
+	got := updated.(model)
+	if copied != "https://github.com/acme/active" || !strings.Contains(got.copyNotice, "acme/active") {
+		t.Fatalf("Right Shift did not copy the selected repository URL: copied=%q notice=%q", copied, got.copyNotice)
+	}
+}
+
+func TestOnlyRightShiftTriggersIdleRepositoryCopy(t *testing.T) {
+	for _, key := range []rune{tea.KeyLeftShift, 'Y'} {
+		m := model{
+			focus: 0, overviewPane: 2, rightShiftSupported: true,
+			repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}},
+		}
+		copied := false
+		m.clipboardCopy = func(string) error { copied = true; return nil }
+		updated, _ := m.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
+		if copied || updated.(model).copyNotice != "" { t.Fatalf("key %q unexpectedly triggered clipboard copy", key) }
+	}
+}
+
+func TestViewRequestsRightShiftKeyEvents(t *testing.T) {
+	view := (model{}).View()
+	if !view.AltScreen || !view.KeyboardEnhancements.ReportEventTypes || !view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes {
+		t.Fatalf("View did not enable alternate screen and full keyboard events: %+v", view)
 	}
 }
 
@@ -830,20 +882,20 @@ func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
 		{FullName: "acme/older", URL: "https://github.com/acme/older", PushedAt: now.Add(-time.Hour).Format(time.RFC3339)},
 		{FullName: "acme/newer", URL: "https://github.com/acme/newer", PushedAt: now.Add(-30 * time.Minute).Format(time.RFC3339)},
 	}}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
 	if m.overviewPane != 2 {
 		t.Fatalf("right navigation selected pane %d, want idle repositories pane 2", m.overviewPane)
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(model)
 	selected := m.selectedIdleRepo()
 	if selected == nil || selected.FullName != "acme/newer" {
 		t.Fatalf("selected idle repository = %+v, want acme/newer", selected)
 	}
-	if view := m.View(); !strings.Contains(view, "IDLE REPOSITORIES") || !strings.Contains(view, "INACTIVE >10M") {
+	if view := m.viewContent(); !strings.Contains(view, "IDLE REPOSITORIES") || !strings.Contains(view, "INACTIVE >10M") {
 		t.Fatalf("overview does not render the separate idle repository panel:\n%s", view)
 	}
 }
