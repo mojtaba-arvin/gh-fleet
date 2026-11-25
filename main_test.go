@@ -1,9 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
-	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -797,32 +797,36 @@ func TestIdleRepositoriesUseSeparatePushAndCIInactivityWindows(t *testing.T) {
 	push := func(age time.Duration) string { return now.Add(-age).Format(time.RFC3339) }
 	ci := func(age time.Duration) string { return now.Add(-age).Format(time.RFC3339) }
 	repos := []repository{
-		{FullName: "acme/open-ielts", PushedAt: push(2*time.Minute), Runs: []run{{Status: "completed", UpdatedAt: ci(30*time.Minute)}}},
-		{FullName: "acme/ai-service", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(11*time.Minute)}}},
+		{FullName: "acme/open-ielts", PushedAt: push(2 * time.Minute), Runs: []run{{Status: "completed", UpdatedAt: ci(30 * time.Minute)}}},
+		{FullName: "acme/ai-service", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(11 * time.Minute)}}},
 		{FullName: "acme/voxpipe", PushedAt: push(time.Hour)},
-		{FullName: "acme/gh-fleet", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(3*time.Hour)}}},
+		{FullName: "acme/gh-fleet", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(3 * time.Hour)}}},
 		{FullName: "acme/helmet", PushedAt: push(time.Hour)},
-		{FullName: "acme/ci-recent", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(9*time.Minute)}}},
+		{FullName: "acme/ci-recent", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(9 * time.Minute)}}},
 		{FullName: "acme/ci-running", PushedAt: push(time.Hour), Runs: []run{{Status: "in_progress"}}},
 		{FullName: "acme/ci-queued", PushedAt: push(time.Hour), Runs: []run{{Status: "waiting"}}},
-		{FullName: "acme/too-old", PushedAt: push(4*24*time.Hour)},
+		{FullName: "acme/too-old", PushedAt: push(4 * 24 * time.Hour)},
 		{FullName: "acme/future", PushedAt: now.Add(time.Minute).Format(time.RFC3339)},
 		{FullName: "acme/unknown"},
 	}
 	got := idleRepositories(repos, now)
 	want := []string{"acme/open-ielts", "acme/ai-service", "acme/gh-fleet", "acme/helmet", "acme/voxpipe"}
-	if len(got) != len(want) { t.Fatalf("idle repositories = %d, want %d: %+v", len(got), len(want), got) }
+	if len(got) != len(want) {
+		t.Fatalf("idle repositories = %d, want %d: %+v", len(got), len(want), got)
+	}
 	for i, repo := range got {
-		if repo.FullName != want[i] { t.Fatalf("idle repository[%d] = %q, want %q", i, repo.FullName, want[i]) }
+		if repo.FullName != want[i] {
+			t.Fatalf("idle repository[%d] = %q, want %q", i, repo.FullName, want[i])
+		}
 	}
 }
 
 func TestIdleRepositoryUsesPushTimestampNotRecentPROrCIUpdate(t *testing.T) {
 	now := time.Now().UTC()
 	repo := repository{
-		FullName: "acme/recent-push", PushedAt: now.Add(-2*time.Minute).Format(time.RFC3339),
+		FullName: "acme/recent-push", PushedAt: now.Add(-2 * time.Minute).Format(time.RFC3339),
 		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-time.Hour).Format(time.RFC3339)}},
-		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-20*time.Minute).Format(time.RFC3339)}},
+		Runs:         []run{{Status: "completed", UpdatedAt: now.Add(-20 * time.Minute).Format(time.RFC3339)}},
 	}
 	got := idleRepositories([]repository{repo}, now)
 	if len(got) != 1 || got[0].FullName != "acme/recent-push" {
@@ -834,12 +838,14 @@ func TestIdleRepositoryPanelShowsFiveRowsAtThirtyTerminalRows(t *testing.T) {
 	now := time.Now().UTC()
 	repos := make([]repository, 5)
 	for i := range repos {
-		repos[i] = repository{FullName: fmt.Sprintf("acme/repo-%d", i), PushedAt: now.Add(-time.Duration(i+1)*time.Hour).Format(time.RFC3339)}
+		repos[i] = repository{FullName: fmt.Sprintf("acme/repo-%d", i), PushedAt: now.Add(-time.Duration(i+1) * time.Hour).Format(time.RFC3339)}
 	}
 	m := model{width: 120, height: 30, repos: repos}
 	view := m.viewContent()
 	for i := range repos {
-		if !strings.Contains(view, repos[i].FullName) { t.Errorf("overview omitted %s:\n%s", repos[i].FullName, view) }
+		if !strings.Contains(view, repos[i].FullName) {
+			t.Errorf("overview omitted %s:\n%s", repos[i].FullName, view)
+		}
 	}
 }
 
@@ -866,7 +872,9 @@ func TestOnlyRightShiftTriggersIdleRepositoryCopy(t *testing.T) {
 		copied := false
 		m.clipboardCopy = func(string) error { copied = true; return nil }
 		updated, _ := m.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
-		if copied || updated.(model).copyNotice != "" { t.Fatalf("key %q unexpectedly triggered clipboard copy", key) }
+		if copied || updated.(model).copyNotice != "" {
+			t.Fatalf("key %q unexpectedly triggered clipboard copy", key)
+		}
 	}
 }
 
