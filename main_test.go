@@ -892,7 +892,7 @@ func TestOnlyRightShiftTriggersIdleRepositoryCopy(t *testing.T) {
 
 func TestViewRequestsRightShiftKeyEvents(t *testing.T) {
 	view := (model{}).View()
-	if !view.AltScreen || !view.KeyboardEnhancements.ReportEventTypes || !view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes {
+	if !view.AltScreen || !view.KeyboardEnhancements.ReportEventTypes || !view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes || !view.KeyboardEnhancements.ReportAssociatedText {
 		t.Fatalf("View did not enable alternate screen and full keyboard events: %+v", view)
 	}
 }
