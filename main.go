@@ -934,6 +934,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
 	if m.animationEnabled {
+		m.animationActive = true
 		cmds = append(cmds, animationCmd())
 	}
 	if m.agentEventsPath != "" {
@@ -2826,6 +2827,10 @@ func (m model) renderHeader(w int) string {
 		if !m.lastRepos.IsZero() {
 			smallState = "● CONNECTED"
 			smallStyle = goodStyle
+			if m.animationEnabled {
+				smallState = pulseFrames[m.animationFrame%len(pulseFrames)] + " CONNECTED"
+				smallStyle = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame%len(spinnerColors)]).Bold(true)
+			}
 		}
 		if m.lastErr != "" {
 			smallState = "● STALE"
