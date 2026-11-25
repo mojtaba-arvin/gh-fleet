@@ -1001,8 +1001,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.Text != "" || (msg.Code <= unicode.MaxRune && unicode.IsPrint(msg.Code)) {
 					value := msg.Text
 					if value == "" {
-						value = msg.String()
-						if msg.Code == tea.KeySpace { value = " " }
+						value = string(msg.Code)
 					}
 					m.filter += value
 					m.cursor = 0
