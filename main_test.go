@@ -952,7 +952,7 @@ func TestRepositoryCopyTextUsesTemplateAndFallsBack(t *testing.T) {
 }
 
 func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
-	m := model{focus: 0, overviewPane: 2, idleCursor: 0, rightShiftSupported: true, copyTemplate: "Please inspect @@@",
+	m := model{focus: 0, overviewPane: 0, rightShiftSupported: true, copyTemplate: "Please inspect @@@",
 		repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}}}
 	var copied string
 	m.clipboardCopy = func(value string) error { copied = value; return nil }
@@ -964,7 +964,7 @@ func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
 }
 
 func TestAltOpensCopyTemplateEditor(t *testing.T) {
-	m := model{focus: 0, overviewPane: 2, altSupported: true, copyTemplate: "Review @@@", width: 100, height: 20}
+	m := model{focus: 0, overviewPane: 0, altSupported: true, copyTemplate: "Review @@@", width: 100, height: 20}
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeftAlt})
 	got := updated.(model)
 	if !got.templateEditing || got.templateDraft != "Review @@@" {
