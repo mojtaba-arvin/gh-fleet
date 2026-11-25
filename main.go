@@ -1127,6 +1127,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "R" {
 			return m, tea.Batch(m.refreshAll(true)...)
 		}
+		if msg.String() == "c" && m.focus == 0 && m.overviewPane == 0 {
+			m.copySelectedRepository()
+			return m, nil
+		}
 		if msg.String() == "C" {
 			return m, tea.Batch(m.clearCacheAndRefresh()...)
 		}
@@ -1192,8 +1196,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "t" {
 			if m.focus == 0 && m.overviewPane == 0 {
 				m.templateEditing = true
-				m.templateDraft = m.copyTemplate
+				m.templateDraft = ""
 				m.lastErr = ""
+				m.copyNotice = ""
 			}
 			return m, nil
 		}
@@ -1715,7 +1720,22 @@ func isRecentPushCIIdle(repo repository, now time.Time) bool {
 	return lastCI.IsZero() || (!lastCI.After(now) && now.Sub(lastCI) >= idleCIInactivityThreshold)
 }
 
+func repositoryIsStale(repo repository, now time.Time) bool {
+	pushed := parseTime(repo.PushedAt)
+	return !pushed.IsZero() && !pushed.After(now) && now.Sub(pushed) > 14*24*time.Hour
+}
+
+func repositoryPushAgeStyle(age time.Duration) lipgloss.Style {
+	if age > 30*time.Minute {
+		return badStyle
+	}
+	return goodStyle
+}
+
 func repoNameStyle(repo *repository, now time.Time) lipgloss.Style {
+	if repo != nil && repositoryIsStale(*repo, now) {
+		return mutedStyle
+	}
 	if repo != nil && isRecentPushCIIdle(*repo, now) {
 		return activeStyle
 	}
@@ -2232,10 +2252,17 @@ func (m model) viewContent() string {
 }
 
 func (m model) copyTemplateView() string {
-	lines := []string{"T · COPY TEMPLATE", "Use @@@ where the selected repository URL should appear.", "Multiple @@@ markers are all replaced. Without a marker, the URL is appended.", ""}
-	lines = append(lines, strings.Split(m.templateDraft, "\n")...)
-	lines = append(lines, "", "Ctrl+S save · Enter new line · Esc cancel")
-	return box("REPOSITORY COPY TEMPLATE", lines, m.width-4, m.height-2, true)
+	lines := []string{
+		"Paste your template into this terminal prompt.",
+		"Use @@@ wherever the selected repository URL should appear.",
+		"Multiple markers are replaced; without a marker, the URL is appended.",
+		"",
+		"Template content is hidden while editing.",
+		"",
+		"Ctrl+S  Save template",
+		"Esc     Cancel without changing the saved template",
+	}
+	return box("PASTE REPOSITORY COPY TEMPLATE", lines, m.width-4, m.height-2, true)
 }
 
 func (m model) renderTabs(w int) string {
@@ -2449,26 +2476,25 @@ func (m model) renderAttentionRows(w, h int) []string {
 		start := max(0, min(m.cursor-capacity/2, max(0, len(repos)-capacity)))
 		for i := start; i < min(len(repos), start+capacity) && len(rows)+1 < h; i++ {
 			repo := repos[i]
+			now := time.Now()
+			stale := repositoryIsStale(*repo, now)
 			push := "NO PUSH DATA"
 			pushStyle := mutedStyle
 			if t := parseTime(repo.PushedAt); !t.IsZero() {
-				age := time.Since(t)
+				age := now.Sub(t)
 				push = ageLabel(age) + " ago"
-				switch {
-				case age <= 24*time.Hour:
-					pushStyle = goodStyle
-				case age <= 7*24*time.Hour:
-					pushStyle = activeStyle
-				case age <= 30*24*time.Hour:
-					pushStyle = branchStyle
-				default:
-					pushStyle = badStyle
-				}
+				pushStyle = repositoryPushAgeStyle(age)
 			}
-			state := repoPortfolioState(*repo, time.Now())
+			state := repoPortfolioState(*repo, now)
 			ci := repoCI(*repo)
-			first := repoNameStyle(repo, time.Now()).Render(m.repoLabel(repo)) + mutedStyle.Render("  ·  PUSH ") + pushStyle.Render(push) + mutedStyle.Render("  ·  ") + repoStateStyle(state).Render(state)
-			second := ciStyle(ci).Render("CI "+ci) + mutedStyle.Render("  ·  PR ") + prCountStyle(repo.PRs).Render(strconv.Itoa(repo.PRs)) + mutedStyle.Render("  ·  ISSUES ") + issueCountStyle(repo.Issues).Render(strconv.Itoa(repo.Issues))
+			nameStyle, labelStyle, stateStyle := repoNameStyle(repo, now), mutedStyle, repoStateStyle(state)
+			ciTextStyle, prTextStyle, issueTextStyle := ciStyle(ci), prCountStyle(repo.PRs), issueCountStyle(repo.Issues)
+			if stale {
+				nameStyle, labelStyle, stateStyle = mutedStyle, mutedStyle, mutedStyle
+				pushStyle, ciTextStyle, prTextStyle, issueTextStyle = mutedStyle, mutedStyle, mutedStyle, mutedStyle
+			}
+			first := nameStyle.Render(m.repoLabel(repo)) + labelStyle.Render("  ·  PUSH ") + pushStyle.Render(push) + labelStyle.Render("  ·  ") + stateStyle.Render(state)
+			second := ciTextStyle.Render("CI "+ci) + labelStyle.Render("  ·  PR ") + prTextStyle.Render(strconv.Itoa(repo.PRs)) + labelStyle.Render("  ·  ISSUES ") + issueTextStyle.Render(strconv.Itoa(repo.Issues))
 			first, second = fit(first, w), fit(second, w)
 			if i == m.cursor && m.overviewPane == 0 {
 				first, second = selectedRow(first, w), selectedRow(second, w)
@@ -2493,27 +2519,26 @@ func (m model) renderAttentionRows(w, h int) []string {
 	start := max(0, min(m.cursor-max(0, room/2), max(0, len(repos)-room)))
 	for i := start; i < min(len(repos), start+room); i++ {
 		repo := repos[i]
+		now := time.Now()
+		stale := repositoryIsStale(*repo, now)
 		push, pushStyle := "NO PUSH DATA", mutedStyle
 		if t := parseTime(repo.PushedAt); !t.IsZero() {
-			age := time.Since(t)
+			age := now.Sub(t)
 			push = ageLabel(age) + " ago"
-			switch {
-			case age <= 24*time.Hour:
-				pushStyle = goodStyle
-			case age <= 7*24*time.Hour:
-				pushStyle = activeStyle
-			case age <= 30*24*time.Hour:
-				pushStyle = branchStyle
-			default:
-				pushStyle = badStyle
-			}
+			pushStyle = repositoryPushAgeStyle(age)
 		}
 		ci := repoCI(*repo)
 		nameW, pushW, ciW, countW := max(10, w/4), 12, 15, 5
-		line := repoNameStyle(repo, time.Now()).Render(fit(m.repoLabel(repo), nameW)) + " " +
-			pushStyle.Render(fit(push, pushW)) + " " + ciStyle(ci).Render(fit(ci, ciW)) + " " +
-			prCountStyle(repo.PRs).Render(fit(strconv.Itoa(repo.PRs), countW)) + " " +
-			issueCountStyle(repo.Issues).Render(fit(strconv.Itoa(repo.Issues), countW))
+		nameStyle, ciTextStyle := repoNameStyle(repo, now), ciStyle(ci)
+		prTextStyle, issueTextStyle := prCountStyle(repo.PRs), issueCountStyle(repo.Issues)
+		if stale {
+			nameStyle, pushStyle, ciTextStyle = mutedStyle, mutedStyle, mutedStyle
+			prTextStyle, issueTextStyle = mutedStyle, mutedStyle
+		}
+		line := nameStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
+			pushStyle.Render(fit(push, pushW)) + " " + ciTextStyle.Render(fit(ci, ciW)) + " " +
+			prTextStyle.Render(fit(strconv.Itoa(repo.PRs), countW)) + " " +
+			issueTextStyle.Render(fit(strconv.Itoa(repo.Issues), countW))
 		if i == m.cursor && m.overviewPane == 0 {
 			line = selectedRow(line, w)
 		}
@@ -4121,10 +4146,7 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	copyHint := "Right Shift copy · t template"
-	if m.keyboardEnhancementsKnown && !m.rightShiftSupported {
-		copyHint = "Right Shift copy unavailable · t template"
-	}
+	copyHint := "c copy · t paste template"
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
@@ -4164,6 +4186,10 @@ func (m model) renderFooter(w int) string {
 		right = mutedStyle.Render("GitHub " + shortAge(m.lastRepos.Format(time.RFC3339)) + " ago")
 	}
 	if width(left)+width(right)+1 > w {
+		right = ""
+	}
+	if m.copyNotice != "" && time.Since(m.copyNoticeAt) < 4*time.Second && m.lastErr == "" {
+		left = fit(goodStyle.Render("✓ "+m.copyNotice), w)
 		right = ""
 	}
 	left = fit(left, w)
@@ -4217,8 +4243,8 @@ func (m model) helpView() string {
 		"  Enter               Open selected item, enter repository detail, or open CI logs",
 		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
-		"  Right Shift           Copy selected repository URL or template output (Kitty protocol)",
-		"  t                   Edit repository copy template (Ctrl+S save, Esc cancel)",
+		"  c                   Copy selected repository URL or template output",
+		"  t                   Paste a hidden copy template (Ctrl+S save, Esc cancel)",
 		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
