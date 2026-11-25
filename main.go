@@ -698,7 +698,7 @@ type model struct {
 	repos                     []repository
 	width, height             int
 	cursor, runCursor         int
-		copyNotice                string
+	copyNotice                string
 	copyNoticeAt              time.Time
 	keyboardEnhancementsKnown bool
 	rightShiftSupported       bool
@@ -1703,14 +1703,22 @@ func latestCIActivity(repo repository) time.Time {
 
 func isRecentPushCIIdle(repo repository, now time.Time) bool {
 	pushed := parseTime(repo.PushedAt)
-	if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow { return false }
-	for _, item := range repo.Runs { if isActive(item) { return false } }
+	if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow {
+		return false
+	}
+	for _, item := range repo.Runs {
+		if isActive(item) {
+			return false
+		}
+	}
 	lastCI := latestCIActivity(repo)
 	return lastCI.IsZero() || (!lastCI.After(now) && now.Sub(lastCI) >= idleCIInactivityThreshold)
 }
 
 func repoNameStyle(repo *repository, now time.Time) lipgloss.Style {
-	if repo != nil && isRecentPushCIIdle(*repo, now) { return activeStyle }
+	if repo != nil && isRecentPushCIIdle(*repo, now) {
+		return activeStyle
+	}
 	return titleStyle
 }
 
@@ -1718,7 +1726,9 @@ func idleRepositories(repos []repository, now time.Time) []*repository {
 	var idle []*repository
 	for i := range repos {
 		repo := &repos[i]
-		if !isRecentPushCIIdle(*repo, now) { continue }
+		if !isRecentPushCIIdle(*repo, now) {
+			continue
+		}
 		idle = append(idle, repo)
 	}
 	sort.SliceStable(idle, func(i, j int) bool {
