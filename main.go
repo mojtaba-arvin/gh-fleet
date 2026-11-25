@@ -886,7 +886,9 @@ type userConfig struct {
 
 func initialConfigPath() string {
 	dir, err := os.UserConfigDir()
-	if err != nil { return "" }
+	if err != nil {
+		return ""
+	}
 	return filepath.Join(dir, "gh-fleet", "config.json")
 }
 
@@ -894,28 +896,50 @@ func loadUserConfig(path string) userConfig {
 	var config userConfig
 	if path != "" {
 		data, err := os.ReadFile(path)
-		if err == nil { _ = json.Unmarshal(data, &config) }
+		if err == nil {
+			_ = json.Unmarshal(data, &config)
+		}
 	}
 	return config
 }
 
 func saveUserConfig(path string, config userConfig) error {
-	if path == "" { return errors.New("user configuration directory is unavailable") }
+	if path == "" {
+		return errors.New("user configuration directory is unavailable")
+	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil { return err }
-	if err := os.Chmod(dir, 0700); err != nil { return err }
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil { return err }
-	if err := os.Chmod(tmp, 0600); err != nil { _ = os.Remove(tmp); return err }
-	if err := os.Rename(tmp, path); err != nil { _ = os.Remove(tmp); return err }
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0600); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 	return nil
 }
 
 func repositoryCopyText(template, repositoryURL string) string {
-	if strings.TrimSpace(template) == "" { return repositoryURL }
-	if strings.Contains(template, "@@@") { return strings.ReplaceAll(template, "@@@", repositoryURL) }
+	if strings.TrimSpace(template) == "" {
+		return repositoryURL
+	}
+	if strings.Contains(template, "@@@") {
+		return strings.ReplaceAll(template, "@@@", repositoryURL)
+	}
 	return strings.TrimRight(template, "\r\n") + "\n" + repositoryURL
 }
 
@@ -1060,7 +1084,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.templateDraft += "\n"
 			default:
 				value := msg.Text
-				if value == "" && msg.Code <= unicode.MaxRune && unicode.IsPrint(msg.Code) { value = string(msg.Code) }
+				if value == "" && msg.Code <= unicode.MaxRune && unicode.IsPrint(msg.Code) {
+					value = string(msg.Code)
+				}
 				m.templateDraft += value
 			}
 			return m, nil
@@ -1098,7 +1124,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
-			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported { m.copySelectedIdleRepository() }
+			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported {
+				m.copySelectedIdleRepository()
+			}
 			return m, nil
 		}
 		if msg.Code == tea.KeySpace {
@@ -1411,8 +1439,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		delete(m.busyRuns, msg.repo)
 		m.inFlightRuns = max(0, m.inFlightRuns-1)
 		if msg.generation != m.refreshGeneration {
-			if !m.refreshRunsAfterRepos { m.queueRun(msg.repo, false) }
-			if cmds := m.drainRunQueue(); len(cmds) > 0 { return m, tea.Batch(cmds...) }
+			if !m.refreshRunsAfterRepos {
+				m.queueRun(msg.repo, false)
+			}
+			if cmds := m.drainRunQueue(); len(cmds) > 0 {
+				return m, tea.Batch(cmds...)
+			}
 			return m, nil
 		}
 		if msg.err != nil {
@@ -1728,7 +1760,9 @@ func (m model) selectedIdleRepo() *repository {
 
 func (m *model) copySelectedIdleRepository() {
 	repo := m.selectedIdleRepo()
-	if repo == nil || repo.URL == "" { return }
+	if repo == nil || repo.URL == "" {
+		return
+	}
 	copyText := repositoryCopyText(m.copyTemplate, repo.URL)
 	copyFn := m.clipboardCopy
 	if copyFn == nil {
@@ -2210,8 +2244,12 @@ func (m model) View() tea.View {
 }
 
 func (m model) viewContent() string {
-	if m.width == 0 || m.height == 0 { return "Starting GitHub Fleet…" }
-	if m.templateEditing { return m.copyTemplateView() }
+	if m.width == 0 || m.height == 0 {
+		return "Starting GitHub Fleet…"
+	}
+	if m.templateEditing {
+		return m.copyTemplateView()
+	}
 	if m.width < 40 {
 		return fit("Widen terminal to at least 40 columns.", m.width)
 	}
