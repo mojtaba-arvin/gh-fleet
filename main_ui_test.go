@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestSelectedRowFillsEntireTerminalWidth(t *testing.T) {
@@ -53,7 +53,7 @@ func TestForceRefreshAndCacheClearKeys(t *testing.T) {
 		queuedRuns: map[string]bool{}, retryAt: map[string]time.Time{},
 		failures: map[string]int{}, animationEnabled: false,
 	}
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'R', Text: "R"})
 	got := updated.(model)
 	if cmd == nil || !got.busyRepos {
 		t.Fatal("R did not start a force refresh")
@@ -63,7 +63,7 @@ func TestForceRefreshAndCacheClearKeys(t *testing.T) {
 	}
 
 	got.busyRepos = false
-	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
+	updated, cmd = got.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
 	got = updated.(model)
 	if cmd == nil || !got.busyRepos {
 		t.Fatal("C did not start a cache-clearing refresh")
