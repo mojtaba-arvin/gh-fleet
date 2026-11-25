@@ -700,8 +700,9 @@ type model struct {
 	copyNoticeAt        time.Time
 	keyboardEnhancementsKnown bool
 	rightShiftSupported bool
+	clipboardCopy func(string) error
 	attentionCursor     int
-	overviewPane        int // 0: attention, 1: in flight / waiting
+	overviewPane        int // 0: attention, 1: in flight / waiting, 2: recent pushes with idle CI
 	inFlightCursor      int
 	prCursor            int
 	commitScroll        int
@@ -990,6 +991,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.filter += msg.String()
 					m.cursor = 0
 				}
+			}
+			return m, nil
+		}
+		if msg.Code == tea.KeyRightShift {
+			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported {
+				m.copySelectedIdleRepository()
 			}
 			return m, nil
 		}
@@ -1593,6 +1600,18 @@ func (m model) selectedIdleRepo() *repository {
 	return rows[max(0, min(m.idleCursor, len(rows)-1))]
 }
 
+func (m *model) copySelectedIdleRepository() {
+	repo := m.selectedIdleRepo()
+	if repo == nil || repo.URL == "" { return }
+	copyFn := m.clipboardCopy
+	if copyFn == nil { copyFn = copyToClipboard }
+	if err := copyFn(repo.URL); err != nil {
+		m.lastErr = "Clipboard: " + err.Error()
+		return
+	}
+	m.copyNotice, m.copyNoticeAt = "Copied "+repo.FullName, time.Now()
+}
+
 func (m model) renderIdleRepositoryRows(w, h int) []string {
 	rows := idleRepositories(m.repos, time.Now())
 	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST PUSH", w))}
@@ -1607,7 +1626,7 @@ func (m model) renderIdleRepositoryRows(w, h int) []string {
 		start := max(0, min(m.idleCursor-capacity/2, max(0, len(rows)-capacity)))
 		for i := start; i < min(len(rows), start+capacity); i++ {
 			repo := rows[i]
-			line := titleStyle.Render(fit(repo.FullName, max(18, w-22))) + " " + timeStyle.Render(ageLabel(time.Since(repoLastActivity(*repo)))+" ago")
+			line := titleStyle.Render(fit(repo.FullName, max(18, w-22))) + " " + timeStyle.Render(ageLabel(time.Since(parseTime(repo.PushedAt)))+" ago")
 			if i == m.idleCursor {
 				line = selectedRow(line, w)
 			}
@@ -3975,10 +3994,12 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
+	copyHint := "Right Shift copy URL"
+	if m.keyboardEnhancementsKnown && !m.rightShiftSupported { copyHint = "Right Shift unavailable in this terminal" }
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
-		left = "↑↓ select · ←/→ panels · Right Shift copy URL · Space refresh · Delete back · r/R/C controls"
+		left = "↑↓ select · ←/→ panels · " + copyHint + " · Space refresh · Delete back · r/R/C controls"
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · Space refresh · Delete back · R force · C cache · o browser"
 		if m.detail {
@@ -3990,7 +4011,7 @@ func (m model) renderFooter(w int) string {
 	if w < 70 {
 		switch m.focus {
 		case 0:
-			left = "↑↓ select · ←/→ panels · Right Shift copy URL · Space refresh · Delete back"
+			left = "↑↓ select · ←/→ panels · " + copyHint + " · Space refresh · Delete back"
 		case 1:
 			left = "↑↓ select · Enter detail · Space refresh · Delete back"
 			if m.detail {
