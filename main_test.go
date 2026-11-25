@@ -790,3 +790,57 @@ func TestRepositoryHealthDoesNotRenderSignalColumn(t *testing.T) {
 		t.Fatalf("repository health should not render the signal column: %s", view)
 	}
 }
+
+
+func TestIdleRepositoriesRequireNoRunningOrQueuedCIAndTenMinutesOfInactivity(t *testing.T) {
+	now := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	repos := []repository{
+		{FullName: "acme/idle", PushedAt: now.Add(-30*time.Minute).Format(time.RFC3339)},
+		{FullName: "acme/recent", PushedAt: now.Add(-5*time.Minute).Format(time.RFC3339)},
+		{FullName: "acme/running", PushedAt: now.Add(-30*time.Minute).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}},
+		{FullName: "acme/queued", PushedAt: now.Add(-30*time.Minute).Format(time.RFC3339), Runs: []run{{Status: "queued"}}},
+		{FullName: "acme/unknown"},
+		{FullName: "acme/pr-active", PushedAt: now.Add(-30*time.Minute).Format(time.RFC3339), PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-2*time.Minute).Format(time.RFC3339)}}},
+		{FullName: "acme/ci-active", PushedAt: now.Add(-30*time.Minute).Format(time.RFC3339), Runs: []run{{Status: "completed", UpdatedAt: now.Add(-3*time.Minute).Format(time.RFC3339)}}},
+	}
+	got := idleRepositories(repos, now)
+	if len(got) != 1 || got[0].FullName != "acme/idle" {
+		names := make([]string, 0, len(got))
+		for _, repo := range got { names = append(names, repo.FullName) }
+		t.Fatalf("idle repositories = %v, want only acme/idle", names)
+	}
+}
+
+func TestIdleRepositoryActivityUsesLatestPushPROrActionsUpdate(t *testing.T) {
+	now := time.Now().UTC()
+	repo := repository{
+		PushedAt: now.Add(-time.Hour).Format(time.RFC3339),
+		PullRequests: []pullRequestSummary{{UpdatedAt: now.Add(-20*time.Minute).Format(time.RFC3339)}},
+		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-4*time.Minute).Format(time.RFC3339)}},
+	}
+	if got := repoLastActivity(repo); !got.Equal(parseTime(repo.Runs[0].UpdatedAt)) {
+		t.Fatalf("last activity = %s, want latest Actions update %s", got, repo.Runs[0].UpdatedAt)
+	}
+}
+
+func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{width: 120, height: 30, repos: []repository{
+		{FullName: "acme/older", URL: "https://github.com/acme/older", PushedAt: now.Add(-time.Hour).Format(time.RFC3339)},
+		{FullName: "acme/newer", URL: "https://github.com/acme/newer", PushedAt: now.Add(-30*time.Minute).Format(time.RFC3339)},
+	}}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = updated.(model)
+	if m.overviewPane != 2 { t.Fatalf("right navigation selected pane %d, want idle repositories pane 2", m.overviewPane) }
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	selected := m.selectedIdleRepo()
+	if selected == nil || selected.FullName != "acme/newer" {
+		t.Fatalf("selected idle repository = %+v, want acme/newer", selected)
+	}
+	if view := m.View(); !strings.Contains(view, "IDLE REPOSITORIES") || !strings.Contains(view, "INACTIVE >10M") {
+		t.Fatalf("overview does not render the separate idle repository panel:\n%s", view)
+	}
+}
