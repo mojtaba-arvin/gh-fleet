@@ -675,6 +675,7 @@ type logMsg struct {
 }
 type tickMsg time.Time
 type animationTickMsg time.Time
+type keyboardSupportTimeoutMsg struct{}
 
 type model struct {
 	api                       *apiClient
@@ -844,6 +845,10 @@ func (m *model) animationCmdIfNeeded() tea.Cmd {
 	return animationCmd()
 }
 
+func keyboardSupportTimeoutCmd() tea.Cmd {
+	return tea.Tick(1200*time.Millisecond, func(time.Time) tea.Msg { return keyboardSupportTimeoutMsg{} })
+}
+
 func animationCmd() tea.Cmd {
 	return tea.Tick(180*time.Millisecond, func(t time.Time) tea.Msg { return animationTickMsg(t) })
 }
@@ -941,7 +946,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
+	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != ""), keyboardSupportTimeoutCmd()}
 	if m.animationEnabled {
 		m.animationActive = true
 		cmds = append(cmds, animationCmd())
@@ -954,6 +959,8 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case keyboardSupportTimeoutMsg:
+		if !m.keyboardEnhancementsKnown { m.keyboardEnhancementsKnown = true; m.rightShiftSupported = false }
 	case tea.KeyboardEnhancementsMsg:
 		m.keyboardEnhancementsKnown = true
 		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes()
@@ -4014,8 +4021,10 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	copyHint := "Right Shift copy URL"
-	if m.keyboardEnhancementsKnown && !m.rightShiftSupported {
+	copyHint := "Right Shift copy URL · Kitty protocol"
+	if m.keyboardEnhancementsKnown && m.rightShiftSupported {
+		copyHint = "Right Shift copy URL"
+	} else if m.keyboardEnhancementsKnown {
 		copyHint = "Right Shift unavailable in this terminal"
 	}
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
