@@ -21,29 +21,29 @@ import (
 	"time"
 	"unicode/utf8"
 
-	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	tea "charm.land/bubbletea/v2"
+	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
 const (
 	idleCIInactivityThreshold = 10 * time.Minute
-	recentPushWindow = 3 * 24 * time.Hour
-	idlePanelMaxHeight = 8
-	apiRoot                 = "https://api.github.com"
-	graphQLURL              = "https://api.github.com/graphql"
-	allRefreshInterval      = 60 * time.Second
-	refsRefreshInterval     = 180 * time.Second
-	activityRefreshInterval = 5 * time.Minute
-	selectedInterval        = 20 * time.Second
-	logRefreshInterval      = 15 * time.Second
-	maxLogBytes             = 2 << 20
-	activityHistoryDays     = 30
-	attentionFailureWindow  = 24 * time.Hour
-	queuedFollowUpAfter     = 15 * time.Minute
-	runningFollowUpAfter    = 45 * time.Minute
-	reviewFollowUpAfter     = 72 * time.Hour
+	recentPushWindow          = 3 * 24 * time.Hour
+	idlePanelMaxHeight        = 8
+	apiRoot                   = "https://api.github.com"
+	graphQLURL                = "https://api.github.com/graphql"
+	allRefreshInterval        = 60 * time.Second
+	refsRefreshInterval       = 180 * time.Second
+	activityRefreshInterval   = 5 * time.Minute
+	selectedInterval          = 20 * time.Second
+	logRefreshInterval        = 15 * time.Second
+	maxLogBytes               = 2 << 20
+	activityHistoryDays       = 30
+	attentionFailureWindow    = 24 * time.Hour
+	queuedFollowUpAfter       = 15 * time.Minute
+	runningFollowUpAfter      = 45 * time.Minute
+	reviewFollowUpAfter       = 72 * time.Hour
 )
 
 var version = "dev"
@@ -677,66 +677,66 @@ type tickMsg time.Time
 type animationTickMsg time.Time
 
 type model struct {
-	api                 *apiClient
-	agentEventsPath     string
-	agentCursor         agentSpoolCursor
-	agentTasks          map[string]agentTask
-	agentSeenEventIDs   map[string]struct{}
-	agentSeenOrder      []string
-	lastAgentPoll       time.Time
-	agentLastErr        string
-	agentRejected       int
-	busyAgentPoll       bool
-	busyCommitHistory   bool
-	lastCommitHistory   time.Time
-	busyBranchHistory   bool
-	lastBranchHistory   time.Time
-	login               string
-	repos               []repository
-	width, height       int
-	cursor, runCursor   int
-	idleCursor          int
-	copyNotice          string
-	copyNoticeAt        time.Time
+	api                       *apiClient
+	agentEventsPath           string
+	agentCursor               agentSpoolCursor
+	agentTasks                map[string]agentTask
+	agentSeenEventIDs         map[string]struct{}
+	agentSeenOrder            []string
+	lastAgentPoll             time.Time
+	agentLastErr              string
+	agentRejected             int
+	busyAgentPoll             bool
+	busyCommitHistory         bool
+	lastCommitHistory         time.Time
+	busyBranchHistory         bool
+	lastBranchHistory         time.Time
+	login                     string
+	repos                     []repository
+	width, height             int
+	cursor, runCursor         int
+	idleCursor                int
+	copyNotice                string
+	copyNoticeAt              time.Time
 	keyboardEnhancementsKnown bool
-	rightShiftSupported bool
-	clipboardCopy func(string) error
-	attentionCursor     int
-	overviewPane        int // 0: attention, 1: in flight / waiting, 2: recent pushes with idle CI
-	inFlightCursor      int
-	prCursor            int
-	commitScroll        int
-	workloadScroll      int
-	commitPeriod        int
-	agentWorkloadMode   bool
-	runScroll           int
-	logOffset           int
-	focus               int // overview, repositories, CI queue
-	detail              bool
-	filter              string
-	filtering           bool
-	busyRuns            map[string]bool
-	busyBranches        map[string]bool
-	queuedRuns          map[string]bool
-	runQueue            []string
-	inFlightRuns        int
-	busyRepos           bool
-	retryAt             map[string]time.Time
-	failures            map[string]int
-	lastRepos, lastRuns time.Time
-	lastErr             string
-	cachePath           string
-	logMode, logWatch   bool
-	logRepo             string
-	logRun              int64
-	logText, logErr     string
-	logUpdated          time.Time
-	logBusy             bool
-	lastLog             time.Time
-	showHelp            bool
-	animationFrame      int
-	animationEnabled    bool
-	animationActive     bool
+	rightShiftSupported       bool
+	clipboardCopy             func(string) error
+	attentionCursor           int
+	overviewPane              int // 0: attention, 1: in flight / waiting, 2: recent pushes with idle CI
+	inFlightCursor            int
+	prCursor                  int
+	commitScroll              int
+	workloadScroll            int
+	commitPeriod              int
+	agentWorkloadMode         bool
+	runScroll                 int
+	logOffset                 int
+	focus                     int // overview, repositories, CI queue
+	detail                    bool
+	filter                    string
+	filtering                 bool
+	busyRuns                  map[string]bool
+	busyBranches              map[string]bool
+	queuedRuns                map[string]bool
+	runQueue                  []string
+	inFlightRuns              int
+	busyRepos                 bool
+	retryAt                   map[string]time.Time
+	failures                  map[string]int
+	lastRepos, lastRuns       time.Time
+	lastErr                   string
+	cachePath                 string
+	logMode, logWatch         bool
+	logRepo                   string
+	logRun                    int64
+	logText, logErr           string
+	logUpdated                time.Time
+	logBusy                   bool
+	lastLog                   time.Time
+	showHelp                  bool
+	animationFrame            int
+	animationEnabled          bool
+	animationActive           bool
 }
 
 func fetchReposCmd(c *apiClient) tea.Cmd {
@@ -1564,8 +1564,12 @@ func latestCIActivity(repo repository) time.Time {
 	var latest time.Time
 	for _, item := range repo.Runs {
 		value := item.UpdatedAt
-		if value == "" { value = item.CreatedAt }
-		if parsed := parseTime(value); !parsed.IsZero() && parsed.After(latest) { latest = parsed }
+		if value == "" {
+			value = item.CreatedAt
+		}
+		if parsed := parseTime(value); !parsed.IsZero() && parsed.After(latest) {
+			latest = parsed
+		}
 	}
 	return latest
 }
@@ -1575,22 +1579,34 @@ func idleRepositories(repos []repository, now time.Time) []*repository {
 	for i := range repos {
 		repo := &repos[i]
 		pushed := parseTime(repo.PushedAt)
-		if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow { continue }
+		if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow {
+			continue
+		}
 		hasActiveCI := false
-		for _, item := range repo.Runs { if isActive(item) { hasActiveCI = true; break } }
-		if hasActiveCI { continue }
+		for _, item := range repo.Runs {
+			if isActive(item) {
+				hasActiveCI = true
+				break
+			}
+		}
+		if hasActiveCI {
+			continue
+		}
 		lastCI := latestCIActivity(*repo)
-		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) <= idleCIInactivityThreshold) { continue }
+		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) <= idleCIInactivityThreshold) {
+			continue
+		}
 		idle = append(idle, repo)
 	}
 	sort.SliceStable(idle, func(i, j int) bool {
 		a, b := parseTime(idle[i].PushedAt), parseTime(idle[j].PushedAt)
-		if !a.Equal(b) { return a.After(b) }
+		if !a.Equal(b) {
+			return a.After(b)
+		}
 		return idle[i].FullName < idle[j].FullName
 	})
 	return idle
 }
-
 
 func (m model) selectedIdleRepo() *repository {
 	rows := idleRepositories(m.repos, time.Now())
@@ -1602,9 +1618,13 @@ func (m model) selectedIdleRepo() *repository {
 
 func (m *model) copySelectedIdleRepository() {
 	repo := m.selectedIdleRepo()
-	if repo == nil || repo.URL == "" { return }
+	if repo == nil || repo.URL == "" {
+		return
+	}
 	copyFn := m.clipboardCopy
-	if copyFn == nil { copyFn = copyToClipboard }
+	if copyFn == nil {
+		copyFn = copyToClipboard
+	}
 	if err := copyFn(repo.URL); err != nil {
 		m.lastErr = "Clipboard: " + err.Error()
 		return
@@ -3995,7 +4015,9 @@ func stateStyle(r run) lipgloss.Style {
 }
 func (m model) renderFooter(w int) string {
 	copyHint := "Right Shift copy URL"
-	if m.keyboardEnhancementsKnown && !m.rightShiftSupported { copyHint = "Right Shift unavailable in this terminal" }
+	if m.keyboardEnhancementsKnown && !m.rightShiftSupported {
+		copyHint = "Right Shift unavailable in this terminal"
+	}
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
