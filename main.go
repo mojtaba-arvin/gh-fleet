@@ -960,7 +960,10 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case keyboardSupportTimeoutMsg:
-		if !m.keyboardEnhancementsKnown { m.keyboardEnhancementsKnown = true; m.rightShiftSupported = false }
+		if !m.keyboardEnhancementsKnown {
+			m.keyboardEnhancementsKnown = true
+			m.rightShiftSupported = false
+		}
 	case tea.KeyboardEnhancementsMsg:
 		m.keyboardEnhancementsKnown = true
 		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes()
