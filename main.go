@@ -4117,7 +4117,7 @@ func (m model) helpView() string {
 		"  Enter               Open selected item, enter repository detail, or open CI logs",
 		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
-		"  Right Shift           Copy selected idle repository URL",
+		"  Right Shift           Copy selected idle repository URL (Kitty protocol)",
 		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
