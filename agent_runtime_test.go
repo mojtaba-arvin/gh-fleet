@@ -402,7 +402,7 @@ func TestGitHubOnlyOverviewDoesNotShowAgentTaskCounts(t *testing.T) {
 	m.agentTasks = map[string]agentTask{
 		"agent": {AgentID: "runner", TaskID: "task-1", Repository: "acme/api", State: "working", LastSignalAt: time.Now()},
 	}
-	view := m.View()
+	view := m.View().Content
 	if strings.Contains(view, "Agent runtime: NOT CONNECTED") {
 		t.Fatalf("GitHub-only view shows a permanent warning for an unused optional source:\n%s", view)
 	}
@@ -436,20 +436,20 @@ func TestOverviewDoesNotReportZeroAgentsBeforeTelemetryIsReadable(t *testing.T) 
 		busyAgentPoll:   true,
 		repos:           []repository{{FullName: "acme/api", Name: "api"}},
 	}
-	if view := m.View(); !strings.Contains(view, "AGENTS …") {
+	if view := m.View().Content; !strings.Contains(view, "AGENTS …") {
 		t.Fatalf("connecting source should not report zero agents:\n%s", view)
 	}
 	m.busyAgentPoll = false
 	m.lastAgentPoll = now
 	m.agentLastErr = "permission denied"
-	if view := m.View(); !strings.Contains(view, "AGENTS ?") {
+	if view := m.View().Content; !strings.Contains(view, "AGENTS ?") {
 		t.Fatalf("unavailable source should not report zero agents:\n%s", view)
 	}
 	m.agentLastErr = ""
 	m.agentTasks = map[string]agentTask{
 		"active": {State: "working", LastSignalAt: now, HeartbeatInterval: 30 * time.Second},
 	}
-	if view := m.View(); !strings.Contains(view, "AGENTS 1") {
+	if view := m.View().Content; !strings.Contains(view, "AGENTS 1") {
 		t.Fatalf("connected source should report observed task count:\n%s", view)
 	}
 }

@@ -131,12 +131,15 @@ Each group retains keyboard navigation through the same repository cursor. A sel
 
 Bubble Tea mouse-cell reporting is intentionally disabled. It intercepted native terminal mouse selection and made visible text difficult to copy. The interface remains keyboard-first; users can select and copy rendered text with their terminal's normal selection and copy shortcuts. The application does not claim to provide a cross-terminal clipboard API.
 
-## Idle repository queue and URL copy
+## Recent pushes with idle CI
 
-The Overview includes a separate **Idle Repositories** panel. A repository appears only when:
-- no GitHub Actions workflow is running or queued / waiting;
-- its latest known repository activity is more than 10 minutes old.
+The Overview contains a separate **Recent Pushes · CI Idle** panel. It is intentionally based on two independent clocks:
 
-For this panel, latest known activity is the newest of the repository push timestamp, loaded pull-request update timestamps, and loaded Actions run update timestamps. Repositories without a known activity timestamp are excluded rather than guessed. The panel is ordered from oldest activity to newest. This is a bounded operational definition based on the data gh-fleet already loads; it is not a claim to cover every issue or discussion event in GitHub.
+- **Repository activity:** the latest push (`pushed_at`) must be within the last 72 hours. This is why a repository pushed 2 minutes ago can still appear.
+- **CI activity:** no workflow may be active (including queued, waiting, requested, or pending states), and the most recent Actions run update must be older than 10 minutes. Repositories with no Actions run sample are eligible if their push is recent.
 
-Use Left / Right to cycle Overview panels and Up / Down to select an idle repository. Enter or o opens its GitHub page. **Shift+Y** (uppercase `Y`) copies the full repository URL. A terminal does not normally send a key event for pressing Shift by itself, so a standalone Shift shortcut cannot be implemented portably; the uppercase-key chord is the reliable terminal interaction. macOS uses `pbcopy`; Linux supports `wl-copy`, `xclip`, or `xsel`; Windows uses `clip`.
+Pull-request update timestamps and completed workflow timestamps do not replace the repository's push timestamp. The panel is sorted newest push first. At a 30-row terminal height, it has room to display at least five repositories; the panel height grows with available terminal space.
+
+Use Left / Right to cycle Overview panels and Up / Down to select a row. Enter or o opens the repository. **Right Shift by itself** copies the full repository URL; no second key is required. This uses the Kitty keyboard protocol's distinct right-shift key event and therefore requires a terminal that supports both all-key reporting and key press/release reporting (for example, kitty, iTerm2, Ghostty, WezTerm, or Alacritty). gh-fleet detects support and labels the shortcut unavailable when the terminal cannot report standalone modifier keys. macOS uses `pbcopy`; Linux supports `wl-copy`, `xclip`, or `xsel`; Windows uses `clip`.
+
+Bubble Tea v2 is used for the richer terminal keyboard events; the minimum Go version is now 1.25.

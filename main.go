@@ -19,29 +19,32 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
+	tea "charm.land/bubbletea/v2"
 	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
 const (
-	idleRepositoryThreshold = 10 * time.Minute
-	apiRoot                 = "https://api.github.com"
-	graphQLURL              = "https://api.github.com/graphql"
-	allRefreshInterval      = 60 * time.Second
-	refsRefreshInterval     = 180 * time.Second
-	activityRefreshInterval = 5 * time.Minute
-	selectedInterval        = 20 * time.Second
-	logRefreshInterval      = 15 * time.Second
-	maxLogBytes             = 2 << 20
-	activityHistoryDays     = 30
-	attentionFailureWindow  = 24 * time.Hour
-	queuedFollowUpAfter     = 15 * time.Minute
-	runningFollowUpAfter    = 45 * time.Minute
-	reviewFollowUpAfter     = 72 * time.Hour
+	idleCIInactivityThreshold = 10 * time.Minute
+	recentPushWindow          = 3 * 24 * time.Hour
+	idlePanelMaxHeight        = 8
+	apiRoot                   = "https://api.github.com"
+	graphQLURL                = "https://api.github.com/graphql"
+	allRefreshInterval        = 60 * time.Second
+	refsRefreshInterval       = 180 * time.Second
+	activityRefreshInterval   = 5 * time.Minute
+	selectedInterval          = 20 * time.Second
+	logRefreshInterval        = 15 * time.Second
+	maxLogBytes               = 2 << 20
+	activityHistoryDays       = 30
+	attentionFailureWindow    = 24 * time.Hour
+	queuedFollowUpAfter       = 15 * time.Minute
+	runningFollowUpAfter      = 45 * time.Minute
+	reviewFollowUpAfter       = 72 * time.Hour
 )
 
 var version = "dev"
@@ -673,65 +676,69 @@ type logMsg struct {
 }
 type tickMsg time.Time
 type animationTickMsg time.Time
+type keyboardSupportTimeoutMsg struct{}
 
 type model struct {
-	api                 *apiClient
-	agentEventsPath     string
-	agentCursor         agentSpoolCursor
-	agentTasks          map[string]agentTask
-	agentSeenEventIDs   map[string]struct{}
-	agentSeenOrder      []string
-	lastAgentPoll       time.Time
-	agentLastErr        string
-	agentRejected       int
-	busyAgentPoll       bool
-	busyCommitHistory   bool
-	lastCommitHistory   time.Time
-	busyBranchHistory   bool
-	lastBranchHistory   time.Time
-	login               string
-	repos               []repository
-	width, height       int
-	cursor, runCursor   int
-	idleCursor          int
-	copyNotice          string
-	copyNoticeAt        time.Time
-	attentionCursor     int
-	overviewPane        int // 0: attention, 1: in flight / waiting
-	inFlightCursor      int
-	prCursor            int
-	commitScroll        int
-	workloadScroll      int
-	commitPeriod        int
-	agentWorkloadMode   bool
-	runScroll           int
-	logOffset           int
-	focus               int // overview, repositories, CI queue
-	detail              bool
-	filter              string
-	filtering           bool
-	busyRuns            map[string]bool
-	busyBranches        map[string]bool
-	queuedRuns          map[string]bool
-	runQueue            []string
-	inFlightRuns        int
-	busyRepos           bool
-	retryAt             map[string]time.Time
-	failures            map[string]int
-	lastRepos, lastRuns time.Time
-	lastErr             string
-	cachePath           string
-	logMode, logWatch   bool
-	logRepo             string
-	logRun              int64
-	logText, logErr     string
-	logUpdated          time.Time
-	logBusy             bool
-	lastLog             time.Time
-	showHelp            bool
-	animationFrame      int
-	animationEnabled    bool
-	animationActive     bool
+	api                       *apiClient
+	agentEventsPath           string
+	agentCursor               agentSpoolCursor
+	agentTasks                map[string]agentTask
+	agentSeenEventIDs         map[string]struct{}
+	agentSeenOrder            []string
+	lastAgentPoll             time.Time
+	agentLastErr              string
+	agentRejected             int
+	busyAgentPoll             bool
+	busyCommitHistory         bool
+	lastCommitHistory         time.Time
+	busyBranchHistory         bool
+	lastBranchHistory         time.Time
+	login                     string
+	repos                     []repository
+	width, height             int
+	cursor, runCursor         int
+	idleCursor                int
+	copyNotice                string
+	copyNoticeAt              time.Time
+	keyboardEnhancementsKnown bool
+	rightShiftSupported       bool
+	clipboardCopy             func(string) error
+	attentionCursor           int
+	overviewPane              int // 0: attention, 1: in flight / waiting, 2: recent pushes with idle CI
+	inFlightCursor            int
+	prCursor                  int
+	commitScroll              int
+	workloadScroll            int
+	commitPeriod              int
+	agentWorkloadMode         bool
+	runScroll                 int
+	logOffset                 int
+	focus                     int // overview, repositories, CI queue
+	detail                    bool
+	filter                    string
+	filtering                 bool
+	busyRuns                  map[string]bool
+	busyBranches              map[string]bool
+	queuedRuns                map[string]bool
+	runQueue                  []string
+	inFlightRuns              int
+	busyRepos                 bool
+	retryAt                   map[string]time.Time
+	failures                  map[string]int
+	lastRepos, lastRuns       time.Time
+	lastErr                   string
+	cachePath                 string
+	logMode, logWatch         bool
+	logRepo                   string
+	logRun                    int64
+	logText, logErr           string
+	logUpdated                time.Time
+	logBusy                   bool
+	lastLog                   time.Time
+	showHelp                  bool
+	animationFrame            int
+	animationEnabled          bool
+	animationActive           bool
 }
 
 func fetchReposCmd(c *apiClient) tea.Cmd {
@@ -839,6 +846,10 @@ func (m *model) animationCmdIfNeeded() tea.Cmd {
 	return animationCmd()
 }
 
+func keyboardSupportTimeoutCmd() tea.Cmd {
+	return tea.Tick(1200*time.Millisecond, func(time.Time) tea.Msg { return keyboardSupportTimeoutMsg{} })
+}
+
 func animationCmd() tea.Cmd {
 	return tea.Tick(180*time.Millisecond, func(t time.Time) tea.Msg { return animationTickMsg(t) })
 }
@@ -936,7 +947,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 }
 
 func (m model) Init() tea.Cmd {
-	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
+	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != ""), keyboardSupportTimeoutCmd()}
 	if m.animationEnabled {
 		m.animationActive = true
 		cmds = append(cmds, animationCmd())
@@ -949,6 +960,16 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case keyboardSupportTimeoutMsg:
+		if !m.keyboardEnhancementsKnown {
+			m.keyboardEnhancementsKnown = true
+			m.rightShiftSupported = false
+		}
+	case tea.KeyboardEnhancementsMsg:
+		m.keyboardEnhancementsKnown = true
+		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes()
+	case tea.KeyReleaseMsg:
+		return m, nil
 	case animationTickMsg:
 		m.animationFrame = (m.animationFrame + 1) % 8
 		if m.animationEnabled {
@@ -957,7 +978,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.animationActive = false
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.showHelp {
 			if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 				m.showHelp = false
@@ -977,14 +998,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.filter = m.filter[:len(m.filter)-size]
 				}
 			default:
-				if msg.Type == tea.KeyRunes {
-					m.filter += msg.String()
+				if msg.Text != "" || (msg.Code <= unicode.MaxRune && unicode.IsPrint(msg.Code)) {
+					value := msg.Text
+					if value == "" {
+						value = string(msg.Code)
+					}
+					m.filter += value
 					m.cursor = 0
 				}
 			}
 			return m, nil
 		}
-		if msg.String() == " " {
+		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
+			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported {
+				m.copySelectedIdleRepository()
+			}
+			return m, nil
+		}
+		if msg.Code == tea.KeySpace {
 			return m, tea.Batch(m.refreshAll(false)...)
 		}
 		if msg.String() == "R" {
@@ -1098,16 +1129,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filter = ""
 			} else if m.detail {
 				m.detail = false
-			}
-		case "Y": // Shift+Y is the terminal-safe equivalent of a standalone Shift shortcut.
-			if m.focus == 0 && m.overviewPane == 2 {
-				if repo := m.selectedIdleRepo(); repo != nil {
-					if err := copyToClipboard(repo.URL); err != nil {
-						m.lastErr = "Clipboard: " + err.Error()
-					} else {
-						m.copyNotice, m.copyNoticeAt = "Copied "+repo.FullName, time.Now()
-					}
-				}
 			}
 		case "enter":
 			switch m.focus {
@@ -1554,21 +1575,15 @@ func (m model) inFlightItems() []inFlightItem {
 	return collectInFlightItems(m.repos, time.Now(), agentTasks)
 }
 
-func repoLastActivity(repo repository) time.Time {
+func latestCIActivity(repo repository) time.Time {
 	var latest time.Time
-	consider := func(value string) {
+	for _, item := range repo.Runs {
+		value := item.UpdatedAt
+		if value == "" {
+			value = item.CreatedAt
+		}
 		if parsed := parseTime(value); !parsed.IsZero() && parsed.After(latest) {
 			latest = parsed
-		}
-	}
-	consider(repo.PushedAt)
-	for _, pr := range repo.PullRequests {
-		consider(pr.UpdatedAt)
-	}
-	for _, item := range repo.Runs {
-		consider(item.UpdatedAt)
-		if item.UpdatedAt == "" {
-			consider(item.CreatedAt)
 		}
 	}
 	return latest
@@ -1578,19 +1593,30 @@ func idleRepositories(repos []repository, now time.Time) []*repository {
 	var idle []*repository
 	for i := range repos {
 		repo := &repos[i]
-		if runningRuns(*repo) > 0 || queuedRuns(*repo) > 0 {
+		pushed := parseTime(repo.PushedAt)
+		if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow {
 			continue
 		}
-		last := repoLastActivity(*repo)
-		if last.IsZero() || now.Sub(last) <= idleRepositoryThreshold {
+		hasActiveCI := false
+		for _, item := range repo.Runs {
+			if isActive(item) {
+				hasActiveCI = true
+				break
+			}
+		}
+		if hasActiveCI {
+			continue
+		}
+		lastCI := latestCIActivity(*repo)
+		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) < idleCIInactivityThreshold) {
 			continue
 		}
 		idle = append(idle, repo)
 	}
 	sort.SliceStable(idle, func(i, j int) bool {
-		a, b := repoLastActivity(*idle[i]), repoLastActivity(*idle[j])
+		a, b := parseTime(idle[i].PushedAt), parseTime(idle[j].PushedAt)
 		if !a.Equal(b) {
-			return a.Before(b)
+			return a.After(b)
 		}
 		return idle[i].FullName < idle[j].FullName
 	})
@@ -1605,11 +1631,27 @@ func (m model) selectedIdleRepo() *repository {
 	return rows[max(0, min(m.idleCursor, len(rows)-1))]
 }
 
+func (m *model) copySelectedIdleRepository() {
+	repo := m.selectedIdleRepo()
+	if repo == nil || repo.URL == "" {
+		return
+	}
+	copyFn := m.clipboardCopy
+	if copyFn == nil {
+		copyFn = copyToClipboard
+	}
+	if err := copyFn(repo.URL); err != nil {
+		m.lastErr = "Clipboard: " + err.Error()
+		return
+	}
+	m.copyNotice, m.copyNoticeAt = "Copied "+repo.FullName, time.Now()
+}
+
 func (m model) renderIdleRepositoryRows(w, h int) []string {
 	rows := idleRepositories(m.repos, time.Now())
-	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST ACTIVITY", w))}
+	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST PUSH", w))}
 	if len(rows) == 0 {
-		message := "No repositories match: CI idle and last activity >10m."
+		message := "No repositories match: pushed within 3d; CI idle ≥10m."
 		if len(m.repos) == 0 {
 			message = "Waiting for repository snapshot…"
 		}
@@ -1619,7 +1661,7 @@ func (m model) renderIdleRepositoryRows(w, h int) []string {
 		start := max(0, min(m.idleCursor-capacity/2, max(0, len(rows)-capacity)))
 		for i := start; i < min(len(rows), start+capacity); i++ {
 			repo := rows[i]
-			line := titleStyle.Render(fit(repo.FullName, max(18, w-22))) + " " + timeStyle.Render(ageLabel(time.Since(repoLastActivity(*repo)))+" ago")
+			line := titleStyle.Render(fit(repo.FullName, max(18, w-22))) + " " + timeStyle.Render(ageLabel(time.Since(parseTime(repo.PushedAt)))+" ago")
 			if i == m.idleCursor {
 				line = selectedRow(line, w)
 			}
@@ -2064,7 +2106,16 @@ func box(title string, content []string, w, h int, active bool) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	view := tea.NewView(m.viewContent())
+	view.AltScreen = true
+	view.KeyboardEnhancements.ReportEventTypes = true
+	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
+	view.KeyboardEnhancements.ReportAssociatedText = true
+	return view
+}
+
+func (m model) viewContent() string {
 	if m.width == 0 || m.height == 0 {
 		return "Starting GitHub Fleet…"
 	}
@@ -2501,9 +2552,11 @@ func (m model) overviewView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
 	summary, footer, ciChart := m.renderOverviewSummary(), m.renderFooter(w), m.renderCIHealthChart(w)
-	if h >= 18 {
-		bodyH := max(5, h-12)
-		idle := box("IDLE REPOSITORIES · NO RUNNING / QUEUED CI · INACTIVE >10M", m.renderIdleRepositoryRows(w-2, 3), w, 5, m.overviewPane == 2)
+	if h >= 22 {
+		idleHeight := min(idlePanelMaxHeight, max(5, h-22))
+		fixedHeight := lipgloss.Height(header) + 5 + idleHeight
+		bodyH := max(5, h-fixedHeight)
+		idle := box("RECENT PUSHES · CI IDLE ≥10M · PUSHED ≤3D", m.renderIdleRepositoryRows(w-2, idleHeight-2), w, idleHeight, m.overviewPane == 2)
 		if w >= 108 {
 			leftW := int(float64(w) * 0.61)
 			rightW := w - leftW - 1
@@ -2511,7 +2564,7 @@ func (m model) overviewView() string {
 			right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
 			return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), idle, footer)
 		}
-		attentionH := max(3, bodyH-4)
+		attentionH := max(3, h-lipgloss.Height(header)-11-idleHeight)
 		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
 		waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, 3), w, 5, m.overviewPane == 1)
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, idle, footer)
@@ -3977,10 +4030,16 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
+	copyHint := "Right Shift copy URL · Kitty protocol"
+	if m.keyboardEnhancementsKnown && m.rightShiftSupported {
+		copyHint = "Right Shift copy URL"
+	} else if m.keyboardEnhancementsKnown {
+		copyHint = "Right Shift unavailable in this terminal"
+	}
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
-		left = "↑↓ select · ←/→ panels · Y copy URL · Space refresh · Delete back · r/R/C controls"
+		left = "↑↓ select · ←/→ panels · " + copyHint + " · Space refresh · Delete back · r/R/C controls"
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · Space refresh · Delete back · R force · C cache · o browser"
 		if m.detail {
@@ -3992,7 +4051,7 @@ func (m model) renderFooter(w int) string {
 	if w < 70 {
 		switch m.focus {
 		case 0:
-			left = "↑↓ select · ←/→ panels · Y copy URL · Space refresh · Delete back"
+			left = "↑↓ select · ←/→ panels · " + copyHint + " · Space refresh · Delete back"
 		case 1:
 			left = "↑↓ select · Enter detail · Space refresh · Delete back"
 			if m.detail {
@@ -4067,7 +4126,7 @@ func (m model) helpView() string {
 		"  Enter               Open selected item, enter repository detail, or open CI logs",
 		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
-		"  Y (Shift+Y)          Copy selected idle repository URL",
+		"  Right Shift           Copy selected idle repository URL (Kitty protocol)",
 		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
@@ -4085,7 +4144,7 @@ func (m model) helpView() string {
 		"  Commit authors and Actions trigger actors are observed identities, not agent owners.",
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
-		"  Idle means no running/queued CI and last push, PR update, or Actions update older than 10 minutes.",
+		"  Idle list: last push within 3 days, no active CI, and no CI run update in the last 10 minutes.",
 		"  Cached data remains visible during API outages; stale data is labelled.",
 		"  r refreshes; R bypasses ETags; C clears local cache and refreshes.",
 		"  Agent events are read-only from --agent-events or GH_FLEET_AGENT_EVENTS.",
@@ -4115,7 +4174,7 @@ func main() {
 	if cachePath == "" {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet: cache directory is unavailable; cached startup will be disabled")
 	}
-	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag), tea.WithAltScreen())
+	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag))
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet:", err)
 		os.Exit(1)
