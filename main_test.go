@@ -971,15 +971,16 @@ func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
 	}
 }
 
-func TestTOpensCopyTemplateEditor(t *testing.T) {
+func TestTOpensHiddenCopyTemplatePastePrompt(t *testing.T) {
 	m := model{focus: 0, overviewPane: 0, copyTemplate: "Review @@@", width: 100, height: 20}
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	got := updated.(model)
-	if !got.templateEditing || got.templateDraft != "Review @@@" {
-		t.Fatalf("t did not open editor: %+v", got)
+	if !got.templateEditing || got.templateDraft != "" {
+		t.Fatalf("t did not open an empty paste prompt: %+v", got)
 	}
-	if !strings.Contains(got.viewContent(), "COPY TEMPLATE") {
-		t.Fatal("template editor view was not rendered")
+	view := got.viewContent()
+	if !strings.Contains(view, "PASTE REPOSITORY COPY TEMPLATE") || strings.Contains(view, "Review @@@") {
+		t.Fatalf("template prompt should be visible without revealing the saved template: %s", view)
 	}
 }
 
@@ -988,6 +989,64 @@ func TestTDoesNotOpenTemplateOutsideRepositoryHealth(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	if updated.(model).templateEditing {
 		t.Fatal("t opened template editor outside Repository Health")
+	}
+}
+
+ 
+func TestTemplatePromptAcceptsMultilinePasteWithoutDisplayingIt(t *testing.T) {
+	m := model{focus: 0, overviewPane: 0, templateEditing: true, configPath: filepath.Join(t.TempDir(), "config.json"), width: 100, height: 20}
+	pasted := "Review this repository:\n@@@\nPlease check the deployment notes."
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'x', Text: pasted})
+	got := updated.(model)
+	if got.templateDraft != pasted {
+		t.Fatalf("pasted template = %q, want %q", got.templateDraft, pasted)
+	}
+	if strings.Contains(got.viewContent(), pasted) {
+		t.Fatal("template contents were exposed in the prompt")
+	}
+	updated, _ = got.Update(tea.KeyPressMsg{Code: tea.KeyCtrlS})
+	got = updated.(model)
+	if got.templateEditing || got.copyTemplate != pasted || loadUserConfig(got.configPath).CopyTemplate != pasted {
+		t.Fatalf("pasted template was not saved: %+v", got)
+	}
+}
+
+func TestCKeyCopiesSelectedRepositoryAndShowsSuccessNotice(t *testing.T) {
+	m := model{focus: 0, overviewPane: 0, repos: []repository{{FullName: "acme/api", URL: "https://github.com/acme/api"}}}
+	var copied string
+	m.clipboardCopy = func(value string) error { copied = value; return nil }
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	got := updated.(model)
+	if copied != "https://github.com/acme/api" || !strings.Contains(got.copyNotice, "acme/api") {
+		t.Fatalf("c did not copy with confirmation: copied=%q notice=%q", copied, got.copyNotice)
+	}
+	if !strings.Contains(got.renderFooter(100), "✓ Copied acme/api") {
+		t.Fatalf("copy confirmation marker not visible in footer: %s", got.renderFooter(100))
+	}
+}
+
+func TestRepositoryFreshnessThresholds(t *testing.T) {
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		age time.Duration
+		stale bool
+		pushRed bool
+	}{
+		{name: "exactly thirty minutes", age: 30*time.Minute, stale: false, pushRed: false},
+		{name: "over thirty minutes", age: 31*time.Minute, stale: false, pushRed: true},
+		{name: "exactly fourteen days", age: 14*24*time.Hour, stale: false, pushRed: true},
+		{name: "over fourteen days", age: 14*24*time.Hour+time.Second, stale: true, pushRed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := repository{PushedAt: now.Add(-tc.age).Format(time.RFC3339)}
+			if got := repositoryIsStale(repo, now); got != tc.stale {
+				t.Fatalf("stale=%v, want %v", got, tc.stale)
+			}
+			if got := repositoryPushAgeStyle(tc.age).GetForeground() == red; got != tc.pushRed {
+				t.Fatalf("push red=%v, want %v", got, tc.pushRed)
+			}
+		})
 	}
 }
 
