@@ -908,3 +908,18 @@ func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
 		t.Fatalf("overview does not render the separate idle repository panel:\n%s", view)
 	}
 }
+
+
+func TestRightShiftCapabilityIsDetectedOrTimesOutCleanly(t *testing.T) {
+	m := model{}
+	updated, _ := m.Update(tea.KeyboardEnhancementsMsg{Flags: 8})
+	got := updated.(model)
+	if !got.keyboardEnhancementsKnown || !got.rightShiftSupported {
+		t.Fatalf("terminal all-key support was not recognized: %+v", got)
+	}
+	updated, _ = (model{}).Update(keyboardSupportTimeoutMsg{})
+	got = updated.(model)
+	if !got.keyboardEnhancementsKnown || got.rightShiftSupported {
+		t.Fatalf("unsupported terminal was not marked unavailable: %+v", got)
+	}
+}
