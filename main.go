@@ -1600,7 +1600,7 @@ func idleRepositories(repos []repository, now time.Time) []*repository {
 			continue
 		}
 		lastCI := latestCIActivity(*repo)
-		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) <= idleCIInactivityThreshold) {
+		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) < idleCIInactivityThreshold) {
 			continue
 		}
 		idle = append(idle, repo)
