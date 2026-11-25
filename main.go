@@ -2505,8 +2505,6 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 	}
 	nameW := max(12, min(28, w/3))
 	pushW, stateW, ciW, prW, issueW := 10, 15, 12, 4, 6
-	_ = stateW
-	_ = used
 	lastGroup := -1
 	for i, repo := range repos {
 		group := repoGroupRank(*repo, now)
@@ -2666,8 +2664,8 @@ func (m model) repoDetailView() string {
 	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
 		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch ") + branchDataStyle.Render(fallback(repo.Default, "unknown")),
-		titleStyle.Render("OPEN PRs ") + activeStyle.Render(strconv.Itoa(repo.PRs)) +
-			mutedStyle.Render("  ·  OPEN ISSUES ") + peopleStyle.Render(strconv.Itoa(repo.Issues)) +
+		titleStyle.Render("OPEN PRs ") + prCountStyle(repo.PRs).Render(strconv.Itoa(repo.PRs)) +
+			mutedStyle.Render("  ·  OPEN ISSUES ") + issueCountStyle(repo.Issues).Render(strconv.Itoa(repo.Issues)) +
 			mutedStyle.Render("  ·  BRANCHES ") + branchDataStyle.Render(strconv.Itoa(repo.BranchN)) +
 			mutedStyle.Render("  ·  LAST PUSH ") + timeStyle.Render(fallback(shortAge(repo.PushedAt), "—")),
 		"",
@@ -3844,33 +3842,33 @@ func (m model) renderFooter(w int) string {
 	switch m.focus {
 	case 0:
 		if m.overviewPane == 0 {
-			left = "↑↓ repos · → in flight · Enter open · l latest CI logs · r refresh · R force · C cache"
+			left = "↑↓ repos · → in flight · Enter open · Space refresh · Delete back · r/R/C controls"
 		} else {
-			left = "↑↓ in flight · ← repos · Enter open · l logs · r refresh · R force · C cache"
+			left = "↑↓ in flight · ← repos · Enter open · Space refresh · Delete back · r/R/C controls"
 		}
 	case 1:
-		left = "↑↓ repos · Enter detail · / filter · r refresh · R force · C clear cache · o browser"
+		left = "↑↓ repos · Enter detail · / filter · Space refresh · Delete back · R force · C cache · o browser"
 		if m.detail {
-			left = "↑↓ PRs · Enter/o open · r refresh · R force · C cache · Esc back"
+			left = "↑↓ PRs · Enter/o open · Space refresh · Delete back · R force · C cache"
 		}
 	case 2:
-		left = "↑↓ runs · Enter/l logs · o browser · r refresh · R force · C clear cache · q quit"
+		left = "↑↓ runs · Enter/l logs · o browser · Space refresh · Delete back · R force · C cache · q quit"
 	}
 	if w < 70 {
 		switch m.focus {
 		case 0:
 			if m.overviewPane == 0 {
-				left = "↑↓ repos · → waiting · Enter open · r/R/C refresh"
+				left = "↑↓ repos · → waiting · Space refresh · Delete back · r/R/C"
 			} else {
-				left = "↑↓ waiting · ← repos · Enter open · r/R/C refresh"
+				left = "↑↓ waiting · ← repos · Space refresh · Delete back · r/R/C"
 			}
 		case 1:
-			left = "↑↓ select · Enter detail · r/R/C refresh · Esc"
+			left = "↑↓ select · Enter detail · Space refresh · Delete back"
 			if m.detail {
-				left = "↑↓ PRs · Enter open · r/R/C refresh · Esc"
+				left = "↑↓ PRs · Enter open · Space refresh · Delete back"
 			}
 		case 2:
-			left = "↑↓ runs · Enter logs · r/R/C refresh · Esc"
+			left = "↑↓ runs · Enter logs · Space refresh · Delete back"
 		}
 	}
 	if m.filtering {
