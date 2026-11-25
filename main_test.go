@@ -1030,15 +1030,15 @@ func TestCKeyCopiesSelectedRepositoryAndShowsSuccessNotice(t *testing.T) {
 func TestRepositoryFreshnessThresholds(t *testing.T) {
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
-		name string
-		age time.Duration
-		stale bool
+		name    string
+		age     time.Duration
+		stale   bool
 		pushRed bool
 	}{
-		{name: "exactly thirty minutes", age: 30*time.Minute, stale: false, pushRed: false},
-		{name: "over thirty minutes", age: 31*time.Minute, stale: false, pushRed: true},
-		{name: "exactly fourteen days", age: 14*24*time.Hour, stale: false, pushRed: true},
-		{name: "over fourteen days", age: 14*24*time.Hour+time.Second, stale: true, pushRed: true},
+		{name: "exactly thirty minutes", age: 30 * time.Minute, stale: false, pushRed: false},
+		{name: "over thirty minutes", age: 31 * time.Minute, stale: false, pushRed: true},
+		{name: "exactly fourteen days", age: 14 * 24 * time.Hour, stale: false, pushRed: true},
+		{name: "over fourteen days", age: 14*24*time.Hour + time.Second, stale: true, pushRed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := repository{PushedAt: now.Add(-tc.age).Format(time.RFC3339)}
