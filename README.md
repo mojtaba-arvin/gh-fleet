@@ -58,7 +58,7 @@ Prebuilt archives for macOS, Linux, and Windows are published on the [Releases](
 
 ## Color, motion, and accessibility
 
-The interface uses a dark, high-contrast operator palette with distinct colors for repository names, workload numbers, trends, contributors, branch counts, PR counts, and CI states. Green means success, rose means failure, amber means waiting, cyan means primary context, blue means numeric workload, violet means trends/branches, teal means active branch counts, and magenta means contributors. Selected rows use a full-width background across every visible cell and continuation line. Every chart is rendered as terminal text (sparklines, bars, and heatmaps), not as an image, so labels and values remain selectable and copyable in terminal emulators. Critical states always include text or symbols; color is not the only signal. A compact spinner appears only while an operation is active and stops when the UI is idle. Set `GH_FLEET_NO_ANIMATION=1` to disable motion. `TERM=dumb` also disables it, and terminal color preferences including `NO_COLOR` are respected.
+The interface uses a dark, high-contrast operator palette with distinct colors for repository names, workload numbers, trends, contributors, branch counts, PR counts, and CI states. Repositories pushed within three days with no active CI and at least ten minutes since their latest CI activity are highlighted yellow in the Repository Health list. Green means success, rose means failure, amber means waiting, cyan means primary context, blue means numeric workload, violet means trends/branches, teal means active branch counts, and magenta means contributors. Selected rows use a full-width background across every visible cell and continuation line. Every chart is rendered as terminal text (sparklines, bars, and heatmaps), not as an image, so labels and values remain selectable and copyable in terminal emulators. Critical states always include text or symbols; color is not the only signal. A compact spinner appears only while an operation is active and stops when the UI is idle. Set `GH_FLEET_NO_ANIMATION=1` to disable motion. `TERM=dumb` also disables it, and terminal color preferences including `NO_COLOR` are respected.
 
 ## Controls
 
@@ -67,7 +67,7 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | Tab / Shift+Tab | Switch between Overview, Repositories, and CI queue |
 | 1 / 2 / 3 | Jump directly to Overview, Repositories, or CI queue |
 | ↑ / ↓, j / k | Move through the focused list |
-| ← / → on Overview | Cycle through attention, in-flight, and recent-push / CI-idle panels |
+| ← / → on Overview | Switch between repository health and in-flight / waiting panels |
 | Enter on an Overview item | Open its GitHub PR or workflow page |
 | l on a workflow item | Open live workflow logs |
 | Enter on a repository | Open repository detail; use ↑ / ↓ to select a PR |
@@ -82,14 +82,14 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | R | Force refresh and bypass cached ETags |
 | C | Clear the local disk cache and fetch a fresh snapshot |
 | o | Open the selected GitHub page in a browser |
-| Right Shift alone | Copy the selected repository URL or template output in the recent-push / CI-idle panel (Kitty keyboard protocol required) |
+| Right Shift alone | Copy the selected repository URL or template output in the repository health panel (Kitty keyboard protocol required) |
 | Alt alone | Edit the repository copy template; use `@@@` for the URL, Ctrl+S to save, Esc to cancel |
 | ? | Show help |
 | q | Quit |
 
 ## Repository copy template
 
-In the Overview's **Recent Pushes · CI Idle** panel, press **Alt** to edit the copy template. Put `@@@` wherever the selected repository URL should be inserted; every marker is replaced. If the template is empty, the plain repository URL is copied. If no marker is present, the URL is appended on a new line. Press Ctrl+S to save or Esc to cancel. The template is stored in the user configuration directory, separately from the removable repository cache.
+In the Overview's **Repository Health** panel, press **Alt** to edit the copy template. Put `@@@` wherever the selected repository URL should be inserted; every marker is replaced. If the template is empty, the plain repository URL is copied. If no marker is present, the URL is appended on a new line. Press Ctrl+S to save or Esc to cancel. The template is stored in the user configuration directory, separately from the removable repository cache.
 
 ## Refresh and network behavior
 

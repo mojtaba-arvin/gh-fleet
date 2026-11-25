@@ -1010,3 +1010,25 @@ func TestStaleRunsResponseIsDiscardedAndRequeuedAfterRefresh(t *testing.T) {
 		t.Fatalf("stale response was not requeued: busy=%v inFlight=%d", got.busyRuns, got.inFlightRuns)
 	}
 }
+
+
+func TestRecentPushCIIdlePredicate(t *testing.T) {
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	cases := []struct { name string; repo repository; want bool }{
+		{name: "recent push and no CI history", repo: repository{PushedAt: now.Add(-24*time.Hour).Format(time.RFC3339)}, want: true},
+		{name: "push older than three days", repo: repository{PushedAt: now.Add(-4*24*time.Hour).Format(time.RFC3339)}, want: false},
+		{name: "active CI", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}}, want: false},
+		{name: "CI activity less than ten minutes ago", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "completed", UpdatedAt: now.Add(-5*time.Minute).Format(time.RFC3339)}}}, want: false},
+		{name: "CI activity at ten minute boundary", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "completed", UpdatedAt: now.Add(-10*time.Minute).Format(time.RFC3339)}}}, want: true},
+		{name: "missing push date", repo: repository{}, want: false},
+	}
+	for _, tc := range cases { t.Run(tc.name, func(t *testing.T) { if got := isRecentPushCIIdle(tc.repo, now); got != tc.want { t.Fatalf("got %v, want %v", got, tc.want) } }) }
+}
+
+func TestCopySelectedRepositoryUsesConfiguredTemplate(t *testing.T) {
+	m := model{cursor: 0, copyTemplate: "Review @@@", repos: []repository{{FullName: "acme/api", Name: "api", URL: "https://github.com/acme/api"}}}
+	var copied string
+	m.clipboardCopy = func(value string) error { copied = value; return nil }
+	m.copySelectedRepository()
+	if copied != "Review https://github.com/acme/api" { t.Fatalf("copied %q", copied) }
+}

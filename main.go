@@ -698,8 +698,7 @@ type model struct {
 	repos                     []repository
 	width, height             int
 	cursor, runCursor         int
-	idleCursor                int
-	copyNotice                string
+		copyNotice                string
 	copyNoticeAt              time.Time
 	keyboardEnhancementsKnown bool
 	rightShiftSupported       bool
@@ -712,7 +711,7 @@ type model struct {
 	refreshGeneration         uint64
 	refreshRunsAfterRepos     bool
 	attentionCursor           int
-	overviewPane              int // 0: attention, 1: in flight / waiting, 2: recent pushes with idle CI
+	overviewPane              int // 0: repository health, 1: in flight / waiting
 	inFlightCursor            int
 	prCursor                  int
 	commitScroll              int
@@ -1117,7 +1116,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if (msg.Code == tea.KeyLeftAlt || msg.Code == tea.KeyRightAlt) && !msg.IsRepeat {
-			if m.focus == 0 && m.overviewPane == 2 && m.altSupported {
+			if m.focus == 0 && m.overviewPane == 0 && m.altSupported {
 				m.templateEditing = true
 				m.templateDraft = m.copyTemplate
 				m.lastErr = ""
@@ -1125,8 +1124,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
-			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported {
-				m.copySelectedIdleRepository()
+			if m.focus == 0 && m.overviewPane == 0 && m.rightShiftSupported {
+				m.copySelectedRepository()
 			}
 			return m, nil
 		}
@@ -1229,11 +1228,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 2
 		case "left":
 			if m.focus == 0 {
-				m.overviewPane = (m.overviewPane + 2) % 3
+				m.overviewPane = (m.overviewPane + 1) % 2
 			}
 		case "right":
 			if m.focus == 0 {
-				m.overviewPane = (m.overviewPane + 1) % 3
+				m.overviewPane = (m.overviewPane + 1) % 2
 			}
 		case "tab":
 			m.focus = (m.focus + 1) % 3
@@ -1251,10 +1250,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.overviewPane == 1 {
 					if item := m.selectedInFlight(); item != nil && item.URL != "" {
 						_ = openURL(item.URL)
-					}
-				} else if m.overviewPane == 2 {
-					if repo := m.selectedIdleRepo(); repo != nil && repo.URL != "" {
-						_ = openURL(repo.URL)
 					}
 				} else if repo := m.selectedRepo(); repo != nil && repo.URL != "" {
 					_ = openURL(repo.URL)
@@ -1307,10 +1302,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item := m.selectedInFlight(); item != nil && item.URL != "" {
 						_ = openURL(item.URL)
 					}
-				} else if m.overviewPane == 2 {
-					if repo := m.selectedIdleRepo(); repo != nil && repo.URL != "" {
-						_ = openURL(repo.URL)
-					}
 				} else if repo := m.selectedRepo(); repo != nil && repo.URL != "" {
 					_ = openURL(repo.URL)
 				}
@@ -1354,8 +1345,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch m.overviewPane {
 				case 1:
 					m.inFlightCursor = 0
-				case 2:
-					m.idleCursor = 0
 				default:
 					m.cursor = 0
 				}
@@ -1374,8 +1363,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch m.overviewPane {
 				case 1:
 					m.inFlightCursor = max(0, len(m.inFlightItems())-1)
-				case 2:
-					m.idleCursor = max(0, len(idleRepositories(m.repos, time.Now()))-1)
 				default:
 					m.cursor = max(0, len(m.visibleRepos())-1)
 				}
@@ -1422,7 +1409,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastRepos = time.Now()
 			m.lastErr = ""
 			m.cursor = min(m.cursor, max(0, len(m.visibleRepos())-1))
-			m.idleCursor = min(m.idleCursor, max(0, len(idleRepositories(m.repos, time.Now()))-1))
 			saveCache(m)
 			var cmds []tea.Cmd
 			for _, r := range m.repos {
@@ -1677,8 +1663,6 @@ func (m *model) move(n int) {
 		switch m.overviewPane {
 		case 1:
 			m.inFlightCursor = max(0, min(len(m.inFlightItems())-1, m.inFlightCursor+n))
-		case 2:
-			m.idleCursor = max(0, min(len(idleRepositories(m.repos, time.Now()))-1, m.idleCursor+n))
 		default:
 			m.cursor = max(0, min(len(m.visibleRepos())-1, m.cursor+n))
 		}
@@ -1717,28 +1701,24 @@ func latestCIActivity(repo repository) time.Time {
 	return latest
 }
 
+func isRecentPushCIIdle(repo repository, now time.Time) bool {
+	pushed := parseTime(repo.PushedAt)
+	if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow { return false }
+	for _, item := range repo.Runs { if isActive(item) { return false } }
+	lastCI := latestCIActivity(repo)
+	return lastCI.IsZero() || (!lastCI.After(now) && now.Sub(lastCI) >= idleCIInactivityThreshold)
+}
+
+func repoNameStyle(repo *repository, now time.Time) lipgloss.Style {
+	if repo != nil && isRecentPushCIIdle(*repo, now) { return activeStyle }
+	return titleStyle
+}
+
 func idleRepositories(repos []repository, now time.Time) []*repository {
 	var idle []*repository
 	for i := range repos {
 		repo := &repos[i]
-		pushed := parseTime(repo.PushedAt)
-		if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow {
-			continue
-		}
-		hasActiveCI := false
-		for _, item := range repo.Runs {
-			if isActive(item) {
-				hasActiveCI = true
-				break
-			}
-		}
-		if hasActiveCI {
-			continue
-		}
-		lastCI := latestCIActivity(*repo)
-		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) < idleCIInactivityThreshold) {
-			continue
-		}
+		if !isRecentPushCIIdle(*repo, now) { continue }
 		idle = append(idle, repo)
 	}
 	sort.SliceStable(idle, func(i, j int) bool {
@@ -1751,16 +1731,8 @@ func idleRepositories(repos []repository, now time.Time) []*repository {
 	return idle
 }
 
-func (m model) selectedIdleRepo() *repository {
-	rows := idleRepositories(m.repos, time.Now())
-	if len(rows) == 0 {
-		return nil
-	}
-	return rows[max(0, min(m.idleCursor, len(rows)-1))]
-}
-
-func (m *model) copySelectedIdleRepository() {
-	repo := m.selectedIdleRepo()
+func (m *model) copySelectedRepository() {
+	repo := m.selectedRepo()
 	if repo == nil || repo.URL == "" {
 		return
 	}
@@ -1774,33 +1746,6 @@ func (m *model) copySelectedIdleRepository() {
 		return
 	}
 	m.copyNotice, m.copyNoticeAt = "Copied "+repo.FullName, time.Now()
-}
-
-func (m model) renderIdleRepositoryRows(w, h int) []string {
-	rows := idleRepositories(m.repos, time.Now())
-	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST PUSH", w))}
-	if len(rows) == 0 {
-		message := "No repositories match: pushed within 3d; CI idle ≥10m."
-		if len(m.repos) == 0 {
-			message = "Waiting for repository snapshot…"
-		}
-		out = append(out, mutedStyle.Render(fit(message, w)))
-	} else {
-		capacity := max(1, h-1)
-		start := max(0, min(m.idleCursor-capacity/2, max(0, len(rows)-capacity)))
-		for i := start; i < min(len(rows), start+capacity); i++ {
-			repo := rows[i]
-			line := titleStyle.Render(fit(repo.FullName, max(18, w-22))) + " " + timeStyle.Render(ageLabel(time.Since(parseTime(repo.PushedAt)))+" ago")
-			if i == m.idleCursor {
-				line = selectedRow(line, w)
-			}
-			out = append(out, fit(line, w))
-		}
-	}
-	for len(out) < h {
-		out = append(out, "")
-	}
-	return out[:min(len(out), h)]
 }
 
 func (m model) selectedInFlight() *inFlightItem {
@@ -2512,7 +2457,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 			}
 			state := repoPortfolioState(*repo, time.Now())
 			ci := repoCI(*repo)
-			first := titleStyle.Render(m.repoLabel(repo)) + mutedStyle.Render("  ·  PUSH ") + pushStyle.Render(push) + mutedStyle.Render("  ·  ") + repoStateStyle(state).Render(state)
+			first := repoNameStyle(repo, time.Now()).Render(m.repoLabel(repo)) + mutedStyle.Render("  ·  PUSH ") + pushStyle.Render(push) + mutedStyle.Render("  ·  ") + repoStateStyle(state).Render(state)
 			second := ciStyle(ci).Render("CI "+ci) + mutedStyle.Render("  ·  PR ") + prCountStyle(repo.PRs).Render(strconv.Itoa(repo.PRs)) + mutedStyle.Render("  ·  ISSUES ") + issueCountStyle(repo.Issues).Render(strconv.Itoa(repo.Issues))
 			first, second = fit(first, w), fit(second, w)
 			if i == m.cursor && m.overviewPane == 0 {
@@ -2555,7 +2500,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 		}
 		ci := repoCI(*repo)
 		nameW, pushW, ciW, countW := max(10, w/4), 12, 15, 5
-		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
+		line := repoNameStyle(repo, time.Now()).Render(fit(m.repoLabel(repo), nameW)) + " " +
 			pushStyle.Render(fit(push, pushW)) + " " + ciStyle(ci).Render(fit(ci, ciW)) + " " +
 			prCountStyle(repo.PRs).Render(fit(strconv.Itoa(repo.PRs), countW)) + " " +
 			issueCountStyle(repo.Issues).Render(fit(strconv.Itoa(repo.Issues), countW))
@@ -2692,21 +2637,18 @@ func (m model) overviewView() string {
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
 	summary, footer, ciChart := m.renderOverviewSummary(), m.renderFooter(w), m.renderCIHealthChart(w)
 	if h >= 22 {
-		idleHeight := min(idlePanelMaxHeight, max(5, h-22))
-		fixedHeight := lipgloss.Height(header) + 5 + idleHeight
-		bodyH := max(5, h-fixedHeight)
-		idle := box("RECENT PUSHES · CI IDLE ≥10M · PUSHED ≤3D", m.renderIdleRepositoryRows(w-2, idleHeight-2), w, idleHeight, m.overviewPane == 2)
+		bodyH := max(5, h-lipgloss.Height(header)-5)
 		if w >= 108 {
 			leftW := int(float64(w) * 0.61)
 			rightW := w - leftW - 1
 			left := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
 			right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
-			return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), idle, footer)
+			return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), footer)
 		}
-		attentionH := max(3, h-lipgloss.Height(header)-11-idleHeight)
+		attentionH := max(3, h-lipgloss.Height(header)-11)
 		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
 		waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, 3), w, 5, m.overviewPane == 1)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, idle, footer)
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, footer)
 	}
 	bodyH := max(3, h-7)
 	attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, m.overviewPane == 0)
