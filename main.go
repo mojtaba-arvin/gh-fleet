@@ -1007,7 +1007,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.String() == "space" {
+		if msg.Code == tea.KeySpace {
 			return m, tea.Batch(m.refreshAll(false)...)
 		}
 		if msg.String() == "R" {
