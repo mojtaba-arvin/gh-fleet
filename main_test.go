@@ -826,7 +826,7 @@ func TestIdleCIThresholdIncludesExactlyTenMinutes(t *testing.T) {
 	repo := repository{
 		FullName: "acme/ten-minute-boundary",
 		PushedAt: now.Add(-time.Hour).Format(time.RFC3339),
-		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-10*time.Minute).Format(time.RFC3339)}},
+		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-10 * time.Minute).Format(time.RFC3339)}},
 	}
 	if got := idleRepositories([]repository{repo}, now); len(got) != 1 {
 		t.Fatalf("repository idle for exactly ten minutes should be included: %+v", got)
@@ -913,10 +913,10 @@ func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(model)
 	selected := m.selectedIdleRepo()
-	if selected == nil || selected.FullName != "acme/newer" {
-		t.Fatalf("selected idle repository = %+v, want acme/newer", selected)
+	if selected == nil || selected.FullName != "acme/older" {
+		t.Fatalf("selected idle repository = %+v, want acme/older", selected)
 	}
-	if view := m.viewContent(); !strings.Contains(view, "IDLE REPOSITORIES") || !strings.Contains(view, "INACTIVE >10M") {
+	if view := m.viewContent(); !strings.Contains(view, "RECENT PUSHES") || !strings.Contains(view, "PUSHED ≤3D") {
 		t.Fatalf("overview does not render the separate idle repository panel:\n%s", view)
 	}
 }
