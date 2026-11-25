@@ -956,7 +956,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyboardEnhancementsMsg:
 		m.keyboardEnhancementsKnown = true
-		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes() && msg.SupportsEventTypes()
+		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes()
 	case tea.KeyReleaseMsg:
 		return m, nil
 	case animationTickMsg:
