@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -932,5 +934,79 @@ func TestRightShiftCapabilityIsDetectedOrTimesOutCleanly(t *testing.T) {
 	got = updated.(model)
 	if !got.keyboardEnhancementsKnown || got.rightShiftSupported {
 		t.Fatalf("unsupported terminal was not marked unavailable: %+v", got)
+	}
+}
+
+func TestRepositoryCopyTextUsesTemplateAndFallsBack(t *testing.T) {
+	const url = "https://github.com/acme/api"
+	cases := []struct{ name, template, want string }{
+		{name: "empty", want: url},
+		{name: "whitespace", template: "  \n ", want: url},
+		{name: "replace marker", template: "Review: @@@", want: "Review: " + url},
+		{name: "replace every marker", template: "@@@\n@@@", want: url + "\n" + url},
+		{name: "append without marker", template: "Please review", want: "Please review\n" + url},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := repositoryCopyText(tc.template, url); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
+	m := model{focus: 0, overviewPane: 2, idleCursor: 0, rightShiftSupported: true, copyTemplate: "Please inspect @@@",
+		repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}}}
+	var copied string
+	m.clipboardCopy = func(value string) error { copied = value; return nil }
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRightShift})
+	got := updated.(model)
+	if copied != "Please inspect https://github.com/acme/active" || !strings.Contains(got.copyNotice, "acme/active") {
+		t.Fatalf("Right Shift copied %q, notice %q", copied, got.copyNotice)
+	}
+}
+
+func TestAltOpensCopyTemplateEditor(t *testing.T) {
+	m := model{focus: 0, overviewPane: 2, altSupported: true, copyTemplate: "Review @@@", width: 100, height: 20}
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeftAlt})
+	got := updated.(model)
+	if !got.templateEditing || got.templateDraft != "Review @@@" {
+		t.Fatalf("Alt did not open editor: %+v", got)
+	}
+	if !strings.Contains(got.viewContent(), "COPY TEMPLATE") {
+		t.Fatal("template editor view was not rendered")
+	}
+}
+
+func TestUserConfigPersistsCopyTemplate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gh-fleet", "config.json")
+	want := userConfig{CopyTemplate: "Review @ @ @: @@@"}
+	if err := saveUserConfig(path, want); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadUserConfig(path); got != want {
+		t.Fatalf("loaded config = %+v, want %+v", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("config permissions = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestStaleRunsResponseIsDiscardedAndRequeuedAfterRefresh(t *testing.T) {
+	m := model{api: &apiClient{}, refreshGeneration: 2, busyRuns: map[string]bool{"acme/api": true}, queuedRuns: map[string]bool{},
+		busyBranches: map[string]bool{}, retryAt: map[string]time.Time{}, failures: map[string]int{}, inFlightRuns: 1,
+		repos: []repository{{FullName: "acme/api", Runs: []run{{ID: 1, Name: "old"}}}}}
+	updated, cmd := m.Update(runsMsg{repo: "acme/api", generation: 1, runs: []run{{ID: 2, Name: "stale"}}})
+	got := updated.(model)
+	if got.repoByName("acme/api").Runs[0].ID != 1 {
+		t.Fatal("stale response overwrote current run data")
+	}
+	if cmd == nil || !got.busyRuns["acme/api"] || got.inFlightRuns != 1 {
+		t.Fatalf("stale response was not requeued: busy=%v inFlight=%d", got.busyRuns, got.inFlightRuns)
 	}
 }
