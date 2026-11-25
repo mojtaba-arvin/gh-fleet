@@ -1009,7 +1009,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.Code == tea.KeyRightShift {
+		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
 			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported {
 				m.copySelectedIdleRepository()
 			}
