@@ -40,7 +40,7 @@ True agent lifecycle state requires explicit events from the agent runner/orches
 - Go 1.25 or newer to build or install from source.
 - A terminal with at least 80 columns is recommended for the side-by-side overview. The layout stacks vertically at narrower widths and supports terminals down to 40 columns.
 
-The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor. Standalone Right Shift and Alt shortcuts require a terminal with Kitty keyboard protocol support.
+The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor. The standalone Right Shift copy shortcut requires terminal support for the Kitty keyboard protocol.
 
 ## Install
 
@@ -83,13 +83,13 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | C | Clear the local disk cache and fetch a fresh snapshot |
 | o | Open the selected GitHub page in a browser |
 | Right Shift alone | Copy the selected repository URL or template output in the repository health panel (Kitty keyboard protocol required) |
-| Alt alone | Edit the repository copy template; use `@@@` for the URL, Ctrl+S to save, Esc to cancel |
+| t | Edit the repository copy template; use `@@@` for the URL, Ctrl+S to save, Esc to cancel |
 | ? | Show help |
 | q | Quit |
 
 ## Repository copy template
 
-In the Overview's **Repository Health** panel, press **Alt** to edit the copy template. Put `@@@` wherever the selected repository URL should be inserted; every marker is replaced. If the template is empty, the plain repository URL is copied. If no marker is present, the URL is appended on a new line. Press Ctrl+S to save or Esc to cancel. The template is stored in the user configuration directory, separately from the removable repository cache.
+In the Overview's **Repository Health** panel, press **t** to edit the copy template. Put `@@@` wherever the selected repository URL should be inserted; every marker is replaced. If the template is empty, the plain repository URL is copied. If no marker is present, the URL is appended on a new line. Press Ctrl+S to save or Esc to cancel. The template is stored in the user configuration directory, separately from the removable repository cache.
 
 ## Refresh and network behavior
 

@@ -1115,14 +1115,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if (msg.Code == tea.KeyLeftAlt || msg.Code == tea.KeyRightAlt) && !msg.IsRepeat {
-			if m.focus == 0 && m.overviewPane == 0 && m.altSupported {
-				m.templateEditing = true
-				m.templateDraft = m.copyTemplate
-				m.lastErr = ""
-			}
-			return m, nil
-		}
 		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
 			if m.focus == 0 && m.overviewPane == 0 && m.rightShiftSupported {
 				m.copySelectedRepository()
@@ -1194,6 +1186,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.workloadScroll = 0
 			case "end", "G":
 				m.workloadScroll = max(0, len(collectAgentWorkload(m.repos, time.Now()))-1)
+			}
+			return m, nil
+		}
+		if msg.String() == "t" {
+			if m.focus == 0 && m.overviewPane == 0 {
+				m.templateEditing = true
+				m.templateDraft = m.copyTemplate
+				m.lastErr = ""
 			}
 			return m, nil
 		}
@@ -2232,7 +2232,7 @@ func (m model) viewContent() string {
 }
 
 func (m model) copyTemplateView() string {
-	lines := []string{"ALT · COPY TEMPLATE", "Use @@@ where the selected repository URL should appear.", "Multiple @@@ markers are all replaced. Without a marker, the URL is appended.", ""}
+	lines := []string{"T · COPY TEMPLATE", "Use @@@ where the selected repository URL should appear.", "Multiple @@@ markers are all replaced. Without a marker, the URL is appended.", ""}
 	lines = append(lines, strings.Split(m.templateDraft, "\n")...)
 	lines = append(lines, "", "Ctrl+S save · Enter new line · Esc cancel")
 	return box("REPOSITORY COPY TEMPLATE", lines, m.width-4, m.height-2, true)
@@ -4121,11 +4121,9 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	copyHint := "Right Shift copy · Alt template · Kitty protocol"
-	if m.keyboardEnhancementsKnown && m.rightShiftSupported && m.altSupported {
-		copyHint = "Right Shift copy · Alt template"
-	} else if m.keyboardEnhancementsKnown {
-		copyHint = "Standalone modifiers unavailable in this terminal"
+	copyHint := "Right Shift copy · t template"
+	if m.keyboardEnhancementsKnown && !m.rightShiftSupported {
+		copyHint = "Right Shift copy unavailable · t template"
 	}
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
@@ -4219,7 +4217,8 @@ func (m model) helpView() string {
 		"  Enter               Open selected item, enter repository detail, or open CI logs",
 		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
-		"  Right Shift           Copy selected idle repository URL (Kitty protocol)",
+		"  Right Shift           Copy selected repository URL or template output (Kitty protocol)",
+		"  t                   Edit repository copy template (Ctrl+S save, Esc cancel)",
 		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
