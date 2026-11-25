@@ -921,7 +921,6 @@ func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
 	}
 }
 
-
 func TestRightShiftCapabilityIsDetectedOrTimesOutCleanly(t *testing.T) {
 	m := model{}
 	updated, _ := m.Update(tea.KeyboardEnhancementsMsg{Flags: 8})
