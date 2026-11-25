@@ -971,15 +971,23 @@ func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
 	}
 }
 
-func TestAltOpensCopyTemplateEditor(t *testing.T) {
-	m := model{focus: 0, overviewPane: 0, altSupported: true, copyTemplate: "Review @@@", width: 100, height: 20}
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeftAlt})
+func TestTOpensCopyTemplateEditor(t *testing.T) {
+	m := model{focus: 0, overviewPane: 0, copyTemplate: "Review @@@", width: 100, height: 20}
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	got := updated.(model)
 	if !got.templateEditing || got.templateDraft != "Review @@@" {
-		t.Fatalf("Alt did not open editor: %+v", got)
+		t.Fatalf("t did not open editor: %+v", got)
 	}
 	if !strings.Contains(got.viewContent(), "COPY TEMPLATE") {
 		t.Fatal("template editor view was not rendered")
+	}
+}
+
+func TestTDoesNotOpenTemplateOutsideRepositoryHealth(t *testing.T) {
+	m := model{focus: 0, overviewPane: 1, copyTemplate: "Review @@@", width: 100, height: 20}
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	if updated.(model).templateEditing {
+		t.Fatal("t opened template editor outside Repository Health")
 	}
 }
 
