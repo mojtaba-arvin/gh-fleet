@@ -733,3 +733,61 @@ func TestCompactRepositoryPortfolioKeepsCIVisibleInsideGroups(t *testing.T) {
 		}
 	}
 }
+
+
+func TestCountColorsUseSeverityBandsAndRequestedZeroSemantics(t *testing.T) {
+	if prCountStyle(0).GetForeground() == prCountStyle(1).GetForeground() {
+		t.Fatal("zero PR count must be visually distinct from nonzero PR counts")
+	}
+	if issueCountStyle(0).GetForeground() == issueCountStyle(1).GetForeground() {
+		t.Fatal("zero issue count must be visually distinct from nonzero issue counts")
+	}
+	if prCountStyle(0).GetForeground() == issueCountStyle(0).GetForeground() {
+		t.Fatal("zero PRs should be red while zero issues should be green")
+	}
+	if issueCountStyle(1).GetForeground() == issueCountStyle(6).GetForeground() {
+		t.Fatal("issue count severity bands should change as the count grows")
+	}
+	if prCountStyle(1).GetForeground() == prCountStyle(6).GetForeground() {
+		t.Fatal("PR count severity bands should change as the count grows")
+	}
+}
+
+func TestKeyboardSpaceRefreshAndDeleteBack(t *testing.T) {
+	m := model{focus: 1, detail: true, width: 100, animationEnabled: false}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if updated.(model).detail != true {
+		t.Fatal("space refresh should not leave repository detail")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	if updated.(model).detail {
+		t.Fatal("Delete should navigate back from repository detail")
+	}
+}
+
+func TestAmbientAnimationContinuesWhileIdle(t *testing.T) {
+	m := model{animationEnabled: true, animationFrame: 0}
+	updated, cmd := m.Update(animationTickMsg(time.Now()))
+	if cmd == nil {
+		t.Fatal("ambient animation should schedule its next frame while idle")
+	}
+	if updated.(model).animationFrame != 1 {
+		t.Fatal("ambient animation frame did not advance")
+	}
+	m.animationEnabled = false
+	_, cmd = m.Update(animationTickMsg(time.Now()))
+	if cmd != nil {
+		t.Fatal("animation should stop when disabled")
+	}
+}
+
+func TestRepositoryHealthDoesNotRenderSignalColumn(t *testing.T) {
+	now := time.Now().UTC()
+	m := model{width: 120, cursor: 0, repos: []repository{{
+		FullName: "acme/api", Name: "api", PushedAt: now.Format(time.RFC3339),
+	}}}
+	view := strings.Join(m.renderAttentionRows(118, 8), "\n")
+	if strings.Contains(view, "SIGNAL") {
+		t.Fatalf("repository health should not render the signal column: %s", view)
+	}
+}
