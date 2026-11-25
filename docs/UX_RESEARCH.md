@@ -90,23 +90,24 @@ The dashboard uses a semantic, high-contrast palette rather than color as decora
 - **Violet** is reserved for branch and secondary context so it does not compete with attention states.
 - Muted text is used for metadata, timestamps, and explanatory detail, never for the only indication of a critical state.
 
-Motion is deliberately state-driven, not ambient. A small four-frame spinner animates only while a GitHub or telemetry operation is in progress. It stops when the work is idle, and it does not add a polling request or redraw loop to the normal idle state. The spinner is a progress cue, not a substitute for the textual state label. Set `GH_FLEET_NO_ANIMATION=1` to disable motion; `TERM=dumb` also disables it. Color output continues to follow terminal capabilities and `NO_COLOR` conventions.
+Motion combines an ambient connection pulse with a distinct four-frame activity spinner. The header pulse remains subtle while connected; when GitHub or telemetry work is active it switches to the rotating spinner. It is a visual cue only and does not add network polling. Set `GH_FLEET_NO_ANIMATION=1` to disable motion; `TERM=dumb` also disables it. Color output continues to follow terminal capabilities and `NO_COLOR` conventions.
 
-The animation cadence is 110 ms and is scheduled only while a tracked operation is busy. This keeps the UI responsive without continuously consuming CPU or visually competing with the operator's task. No flashing, pulsing alerts, or animated list rows are used.
+The animation cadence is 180 ms. The pulse keeps the console visibly alive while the textual state remains authoritative; the busy spinner takes precedence during real work. No flashing alerts or animated list rows are used.
 
 ## Copyable cyber-operator presentation (implemented)
 
 The visual direction is a dark operations console with restrained neon accents, not decorative terminal noise. Text remains ordinary terminal text; charts are built from selectable glyphs and labels rather than raster images. This preserves terminal selection/copy workflows and keeps the interface usable over SSH.
 
-Data columns use separate, stable visual channels: cyan for repository identity, blue for workload counts, violet for trend, magenta for contributor counts, teal for active branches, amber for PR counts, and the existing semantic CI colors for pipeline state. The selected row is highlighted across the full available width, including metadata/continuation lines, so the current focus is unambiguous.
+Data columns use separate, stable visual channels. PR and issue counts use severity bands rather than one fixed color: zero open PRs is red, zero open issues is green, and higher counts move through distinct caution / high-volume colors. The selected row is highlighted across the full available width, including metadata/continuation lines, so the current focus is unambiguous.
 
 The Overview and CI queue include a compact, text-based status distribution bar with explicit PASS / FAIL / RUN / WAIT counts. Showing it in both places makes the chart useful without forcing a drill-down. It is intentionally labelled as a loaded sample because the UI only has the workflow runs currently present in its repository snapshots; it must not imply complete historical CI coverage.
 
 ### Manual cache controls
 
-- `r`: refresh repository and Actions data using the normal ETag/freshness behavior.
+- `Space` or `r`: refresh repository and Actions data using the normal ETag/freshness behavior.
 - `R`: force refresh by clearing in-memory ETags and the Actions response cache before requesting fresh data.
 - `C`: remove the persisted cache file, clear ETags, and fetch a fresh snapshot. Existing on-screen data remains visible until the replacement fetch succeeds.
+- `Delete`: navigate back from a detail view (or clear the active repository filter).
 
 The refresh path retains bounded concurrency and the existing retry/backoff behavior. It refuses to start a second repository snapshot fetch while one is already in progress.
 
@@ -114,7 +115,7 @@ The refresh path retains bounded concurrency and the existing retry/backoff beha
 
 ## Repository health, grouping, and terminal selection
 
-The Overview health panel is an inventory rather than an exception-only queue. Every loaded repository is shown with its last push age, current Actions state, open PR / issue counts, and its highest-priority actionable signal. CI is deliberately independent from push recency: a dormant repository can still show a running or queued workflow.
+The Overview health panel is an inventory rather than an exception-only queue. Every loaded repository is shown with its last push age, current Actions state, and open PR / issue counts. The redundant signal column is intentionally omitted. CI is deliberately independent from push recency: a dormant repository can still show a running or queued workflow.
 
 The Repositories view groups projects in this order:
 

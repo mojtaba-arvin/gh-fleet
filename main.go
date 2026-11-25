@@ -836,7 +836,7 @@ func (m *model) animationCmdIfNeeded() tea.Cmd {
 }
 
 func animationCmd() tea.Cmd {
-	return tea.Tick(110*time.Millisecond, func(t time.Time) tea.Msg { return animationTickMsg(t) })
+	return tea.Tick(180*time.Millisecond, func(t time.Time) tea.Msg { return animationTickMsg(t) })
 }
 
 func tickCmd(agentTelemetryEnabled bool) tea.Cmd {
@@ -934,6 +934,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{fetchReposCmd(m.api), tickCmd(m.agentEventsPath != "")}
 	if m.animationEnabled {
+		m.animationActive = true
 		cmds = append(cmds, animationCmd())
 	}
 	if m.agentEventsPath != "" {
@@ -945,8 +946,8 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case animationTickMsg:
-		m.animationFrame = (m.animationFrame + 1) % 4
-		if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
+		m.animationFrame = (m.animationFrame + 1) % 8
+		if m.animationEnabled {
 			return m, animationCmd()
 		}
 		m.animationActive = false
@@ -979,6 +980,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if msg.String() == " " {
+			return m, tea.Batch(m.refreshAll(false)...)
+		}
 		if msg.String() == "R" {
 			return m, tea.Batch(m.refreshAll(true)...)
 		}
@@ -987,7 +991,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.logMode {
 			switch msg.String() {
-			case "esc", "backspace":
+			case "esc", "backspace", "delete":
 				m.logMode = false
 				m.logWatch = false
 			case "u":
@@ -1010,7 +1014,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.agentWorkloadMode {
 			switch msg.String() {
-			case "esc", "backspace", "a":
+			case "esc", "backspace", "delete", "a":
 				m.agentWorkloadMode = false
 			case "r":
 				var cmds []tea.Cmd
@@ -1085,7 +1089,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = (m.focus + 1) % 3
 		case "shift+tab":
 			m.focus = (m.focus + 2) % 3
-		case "esc":
+		case "esc", "delete":
 			if m.filter != "" {
 				m.filter = ""
 			} else if m.detail {
@@ -2138,7 +2142,7 @@ func (m model) renderOverviewSummary() string {
 	}
 	parts := []string{
 		badStyle.Render(fmt.Sprintf("ATTENTION %d", len(items))),
-		titleStyle.Render(fmt.Sprintf("OPEN PRs %d", openPRs)),
+		prCountStyle(openPRs).Render(fmt.Sprintf("OPEN PRs %d", openPRs)),
 		activeStyle.Render(fmt.Sprintf("CI RUNNING %d", running)),
 		branchStyle.Render(fmt.Sprintf("CI QUEUED %d", queued)),
 		mutedStyle.Render(fleetLabel),
@@ -2179,17 +2183,8 @@ func (m model) renderAttentionRows(w, h int) []string {
 			}
 			state := repoPortfolioState(*repo, time.Now())
 			ci := repoCI(*repo)
-			alerts := collectAttentionItems([]repository{*repo}, time.Now())
-			signals := make([]string, 0, len(alerts))
-			for _, alert := range alerts {
-				signals = append(signals, alert.Kind)
-			}
-			signal := "NO ALERT"
-			if len(signals) > 0 {
-				signal = strings.Join(signals, ", ")
-			}
 			first := titleStyle.Render(m.repoLabel(repo)) + mutedStyle.Render("  ·  PUSH ") + pushStyle.Render(push) + mutedStyle.Render("  ·  ") + repoStateStyle(state).Render(state)
-			second := ciStyle(ci).Render("CI "+ci) + mutedStyle.Render(fmt.Sprintf("  ·  PR %d  ·  ISSUES %d  ·  ", repo.PRs, repo.Issues)) + attentionStyle(fallback(signalsFirst(signals), "NO ALERT")).Render("SIGNAL "+signal)
+			second := ciStyle(ci).Render("CI "+ci) + mutedStyle.Render("  ·  PR ") + prCountStyle(repo.PRs).Render(strconv.Itoa(repo.PRs)) + mutedStyle.Render("  ·  ISSUES ") + issueCountStyle(repo.Issues).Render(strconv.Itoa(repo.Issues))
 			first, second = fit(first, w), fit(second, w)
 			if i == m.cursor && m.overviewPane == 0 {
 				first, second = selectedRow(first, w), selectedRow(second, w)
@@ -2202,7 +2197,7 @@ func (m model) renderAttentionRows(w, h int) []string {
 		return rows[:min(len(rows), h)]
 	}
 
-	rows := []string{mutedStyle.Render(fit("REPOSITORY                 LAST PUSH       CI STATE          PR   ISSUES   SIGNAL", w))}
+	rows := []string{mutedStyle.Render(fit("REPOSITORY                 LAST PUSH       CI STATE          PR   ISSUES", w))}
 	if len(repos) == 0 {
 		message := "Waiting for the first GitHub repository snapshot…"
 		if len(m.repos) > 0 {
@@ -2230,17 +2225,11 @@ func (m model) renderAttentionRows(w, h int) []string {
 			}
 		}
 		ci := repoCI(*repo)
-		signal := "—"
-		if alerts := collectAttentionItems([]repository{*repo}, time.Now()); len(alerts) > 0 {
-			signal = alerts[0].Kind
-		}
 		nameW, pushW, ciW, countW := max(10, w/4), 12, 15, 5
-		remaining := max(6, w-nameW-pushW-ciW-countW*2-7)
 		line := titleStyle.Render(fit(m.repoLabel(repo), nameW)) + " " +
 			pushStyle.Render(fit(push, pushW)) + " " + ciStyle(ci).Render(fit(ci, ciW)) + " " +
-			numberStyle.Render(fit(strconv.Itoa(repo.PRs), countW)) + " " +
-			peopleStyle.Render(fit(strconv.Itoa(repo.Issues), countW)) + " " +
-			attentionStyle(signal).Render(fit(signal, remaining))
+			prCountStyle(repo.PRs).Render(fit(strconv.Itoa(repo.PRs), countW)) + " " +
+			issueCountStyle(repo.Issues).Render(fit(strconv.Itoa(repo.Issues), countW))
 		if i == m.cursor && m.overviewPane == 0 {
 			line = selectedRow(line, w)
 		}
@@ -2497,7 +2486,8 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 			state, ci := repoPortfolioState(*repo, now), repoCI(*repo)
 			first := titleStyle.Render(m.repoLabel(repo)) + "  " + repoStateStyle(state).Render(state)
 			second := timeStyle.Render("PUSH "+push) + mutedStyle.Render("  ·  ") + ciStyle(ci).Render("CI "+ci) +
-				mutedStyle.Render(fmt.Sprintf("  ·  PR %d · ISSUES %d", repo.PRs, repo.Issues))
+				mutedStyle.Render("  ·  PR ") + prCountStyle(repo.PRs).Render(strconv.Itoa(repo.PRs)) +
+				mutedStyle.Render(" · ISSUES ") + issueCountStyle(repo.Issues).Render(strconv.Itoa(repo.Issues))
 			if i == m.cursor {
 				first, second = selectedRow(fit(first, w), w), selectedRow(fit(second, w), w)
 				selectedLine = len(rows)
@@ -2516,8 +2506,6 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 	}
 	nameW := max(12, min(28, w/3))
 	pushW, stateW, ciW, prW, issueW := 10, 15, 12, 4, 6
-	used := nameW + pushW + stateW + ciW + prW + issueW + 6
-	alertW := max(0, w-used)
 	lastGroup := -1
 	for i, repo := range repos {
 		group := repoGroupRank(*repo, now)
@@ -2540,15 +2528,8 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 			timeStyle.Render(fit(push, pushW)) + " " +
 			repoStateStyle(state).Render(fit(state, stateW)) + " " +
 			ciStyle(ci).Render(fit(ci, ciW)) + " " +
-			numberStyle.Render(fit(strconv.Itoa(repo.PRs), prW)) + " " +
-			peopleStyle.Render(fit(strconv.Itoa(repo.Issues), issueW))
-		if alertW >= 8 {
-			signal := "—"
-			if alerts := collectAttentionItems([]repository{*repo}, now); len(alerts) > 0 {
-				signal = alerts[0].Kind
-			}
-			line += " " + attentionStyle(signal).Render(fit(signal, alertW))
-		}
+			prCountStyle(repo.PRs).Render(fit(strconv.Itoa(repo.PRs), prW)) + " " +
+			issueCountStyle(repo.Issues).Render(fit(strconv.Itoa(repo.Issues), issueW))
 		if i == m.cursor {
 			line = selectedRow(line, w)
 		}
@@ -2576,6 +2557,32 @@ func (m model) renderPortfolioRepos(w, h int) []string {
 		visible = append(visible, "")
 	}
 	return visible[:min(len(visible), h)]
+}
+
+func prCountStyle(n int) lipgloss.Style {
+	switch {
+	case n == 0:
+		return badStyle
+	case n <= 2:
+		return activeStyle
+	case n <= 5:
+		return branchStyle
+	default:
+		return lipgloss.NewStyle().Foreground(magenta).Bold(true)
+	}
+}
+
+func issueCountStyle(n int) lipgloss.Style {
+	switch {
+	case n == 0:
+		return goodStyle
+	case n <= 2:
+		return branchStyle
+	case n <= 5:
+		return activeStyle
+	default:
+		return badStyle
+	}
 }
 
 func groupStyle(group int) lipgloss.Style {
@@ -2658,8 +2665,8 @@ func (m model) repoDetailView() string {
 	prEnd := min(len(repo.PullRequests), prStart+prCapacity)
 	content := []string{
 		titleStyle.Render(repo.FullName) + mutedStyle.Render("  ·  default branch ") + branchDataStyle.Render(fallback(repo.Default, "unknown")),
-		titleStyle.Render("OPEN PRs ") + activeStyle.Render(strconv.Itoa(repo.PRs)) +
-			mutedStyle.Render("  ·  OPEN ISSUES ") + peopleStyle.Render(strconv.Itoa(repo.Issues)) +
+		titleStyle.Render("OPEN PRs ") + prCountStyle(repo.PRs).Render(strconv.Itoa(repo.PRs)) +
+			mutedStyle.Render("  ·  OPEN ISSUES ") + issueCountStyle(repo.Issues).Render(strconv.Itoa(repo.Issues)) +
 			mutedStyle.Render("  ·  BRANCHES ") + branchDataStyle.Render(strconv.Itoa(repo.BranchN)) +
 			mutedStyle.Render("  ·  LAST PUSH ") + timeStyle.Render(fallback(shortAge(repo.PushedAt), "—")),
 		"",
@@ -2787,15 +2794,19 @@ func (m model) renderHeader(w int) string {
 		state = "CONNECTED · " + shortAge(m.lastRepos.Format(time.RFC3339)) + " ago"
 	}
 	spinnerFrames := []string{"◐", "◓", "◑", "◒"}
-	spinnerColors := []lipgloss.Color{cyan, blue, purple, cyan}
+	pulseFrames := []string{"●", "◉", "●", "◉", "●", "◉", "●", "◉"}
+	spinnerColors := []lipgloss.Color{cyan, blue, purple, teal}
 	indicator := goodStyle.Render("●")
-	if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
-		indicator = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true).Render(spinnerFrames[m.animationFrame])
+	busy := m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll
+	if m.animationEnabled {
+		frame := m.animationFrame % len(spinnerColors)
+		glyph := pulseFrames[m.animationFrame%len(pulseFrames)]
+		if busy {
+			glyph = spinnerFrames[frame]
+		}
+		indicator = lipgloss.NewStyle().Foreground(spinnerColors[frame]).Bold(true).Render(glyph)
 	}
-	status := goodStyle.Render("● " + state)
-	if m.animationEnabled && (m.busyRepos || m.inFlightRuns > 0 || m.busyCommitHistory || m.busyBranchHistory || m.logBusy || m.busyAgentPoll) {
-		status = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame]).Bold(true).Render(indicator + " " + state)
-	}
+	status := goodStyle.Render(indicator + " " + state)
 	if m.lastErr != "" {
 		status = badStyle.Render("● " + state)
 	}
@@ -2816,6 +2827,10 @@ func (m model) renderHeader(w int) string {
 		if !m.lastRepos.IsZero() {
 			smallState = "● CONNECTED"
 			smallStyle = goodStyle
+			if m.animationEnabled {
+				smallState = pulseFrames[m.animationFrame%len(pulseFrames)] + " CONNECTED"
+				smallStyle = lipgloss.NewStyle().Foreground(spinnerColors[m.animationFrame%len(spinnerColors)]).Bold(true)
+			}
 		}
 		if m.lastErr != "" {
 			smallState = "● STALE"
@@ -3832,33 +3847,33 @@ func (m model) renderFooter(w int) string {
 	switch m.focus {
 	case 0:
 		if m.overviewPane == 0 {
-			left = "↑↓ repos · → in flight · Enter open · l latest CI logs · r refresh · R force · C cache"
+			left = "↑↓ repos · → in flight · Enter open · Space refresh · Delete back · r/R/C controls"
 		} else {
-			left = "↑↓ in flight · ← repos · Enter open · l logs · r refresh · R force · C cache"
+			left = "↑↓ in flight · ← repos · Enter open · Space refresh · Delete back · r/R/C controls"
 		}
 	case 1:
-		left = "↑↓ repos · Enter detail · / filter · r refresh · R force · C clear cache · o browser"
+		left = "↑↓ repos · Enter detail · / filter · Space refresh · Delete back · R force · C cache · o browser"
 		if m.detail {
-			left = "↑↓ PRs · Enter/o open · r refresh · R force · C cache · Esc back"
+			left = "↑↓ PRs · Enter/o open · Space refresh · Delete back · R force · C cache"
 		}
 	case 2:
-		left = "↑↓ runs · Enter/l logs · o browser · r refresh · R force · C clear cache · q quit"
+		left = "↑↓ runs · Enter/l logs · o browser · Space refresh · Delete back · R force · C cache · q quit"
 	}
 	if w < 70 {
 		switch m.focus {
 		case 0:
 			if m.overviewPane == 0 {
-				left = "↑↓ repos · → waiting · Enter open · r/R/C refresh"
+				left = "↑↓ repos · → waiting · Space refresh · Delete back · r/R/C"
 			} else {
-				left = "↑↓ waiting · ← repos · Enter open · r/R/C refresh"
+				left = "↑↓ waiting · ← repos · Space refresh · Delete back · r/R/C"
 			}
 		case 1:
-			left = "↑↓ select · Enter detail · r/R/C refresh · Esc"
+			left = "↑↓ select · Enter detail · Space refresh · Delete back"
 			if m.detail {
-				left = "↑↓ PRs · Enter open · r/R/C refresh · Esc"
+				left = "↑↓ PRs · Enter open · Space refresh · Delete back"
 			}
 		case 2:
-			left = "↑↓ runs · Enter logs · r/R/C refresh · Esc"
+			left = "↑↓ runs · Enter logs · Space refresh · Delete back"
 		}
 	}
 	if m.filtering {
