@@ -821,6 +821,18 @@ func TestIdleRepositoriesUseSeparatePushAndCIInactivityWindows(t *testing.T) {
 	}
 }
 
+func TestIdleCIThresholdIncludesExactlyTenMinutes(t *testing.T) {
+	now := time.Now().UTC()
+	repo := repository{
+		FullName: "acme/ten-minute-boundary",
+		PushedAt: now.Add(-time.Hour).Format(time.RFC3339),
+		Runs: []run{{Status: "completed", UpdatedAt: now.Add(-10*time.Minute).Format(time.RFC3339)}},
+	}
+	if got := idleRepositories([]repository{repo}, now); len(got) != 1 {
+		t.Fatalf("repository idle for exactly ten minutes should be included: %+v", got)
+	}
+}
+
 func TestIdleRepositoryUsesPushTimestampNotRecentPROrCIUpdate(t *testing.T) {
 	now := time.Now().UTC()
 	repo := repository{
