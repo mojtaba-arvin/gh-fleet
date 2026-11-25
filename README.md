@@ -40,7 +40,7 @@ True agent lifecycle state requires explicit events from the agent runner/orches
 - Go 1.25 or newer to build or install from source.
 - A terminal with at least 80 columns is recommended for the side-by-side overview. The layout stacks vertically at narrower widths and supports terminals down to 40 columns.
 
-The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor. The standalone Right Shift shortcut requires a terminal with Kitty keyboard protocol support.
+The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor. Standalone Right Shift and Alt shortcuts require a terminal with Kitty keyboard protocol support.
 
 ## Install
 
@@ -82,9 +82,14 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | R | Force refresh and bypass cached ETags |
 | C | Clear the local disk cache and fetch a fresh snapshot |
 | o | Open the selected GitHub page in a browser |
-| Right Shift alone | Copy the selected repository URL in the recent-push / CI-idle panel (Kitty keyboard protocol required) |
+| Right Shift alone | Copy the selected repository URL or template output in the recent-push / CI-idle panel (Kitty keyboard protocol required) |
+| Alt alone | Edit the repository copy template; use `@@@` for the URL, Ctrl+S to save, Esc to cancel |
 | ? | Show help |
 | q | Quit |
+
+## Repository copy template
+
+In the Overview's **Recent Pushes · CI Idle** panel, press **Alt** to edit the copy template. Put `@@@` wherever the selected repository URL should be inserted; every marker is replaced. If the template is empty, the plain repository URL is copied. If no marker is present, the URL is appended on a new line. Press Ctrl+S to save or Esc to cancel. The template is stored in the user configuration directory, separately from the removable repository cache.
 
 ## Refresh and network behavior
 
@@ -96,7 +101,7 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 - Actions requests use ETags when GitHub provides them. Failed requests use exponential backoff and cached data remains visible.
 - The account overview reads up to 100 branch heads per repository and paginates when needed. Diagnostic activity counts deduplicate commits by SHA across branches.
 
-Press `r` for an immediate refresh, `R` to bypass cached ETags, or `C` to remove the persisted local snapshot and fetch a fresh one. Clearing the cache keeps the currently rendered snapshot visible until the replacement fetch succeeds. For multi-machine, near-real-time agent status, use an authenticated event relay; a GitHub-only terminal client cannot observe work that has not produced a GitHub event.
+Press `r` for an immediate refresh, `R` to bypass cached ETags, or `C` to remove the persisted local snapshot and fetch a fresh one. A manual refresh fetches the repository snapshot first, then refreshes Actions for that snapshot; older in-flight Actions responses are discarded so they cannot overwrite newer list state. Clearing the cache keeps the currently rendered snapshot visible until the replacement fetch succeeds. For multi-machine, near-real-time agent status, use an authenticated event relay; a GitHub-only terminal client cannot observe work that has not produced a GitHub event.
 
 ## Agent runtime telemetry (optional)
 

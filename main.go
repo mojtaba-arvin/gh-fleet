@@ -653,9 +653,10 @@ type reposMsg struct {
 	err   error
 }
 type runsMsg struct {
-	repo string
-	runs []run
-	err  error
+	repo       string
+	runs       []run
+	err        error
+	generation uint64
 }
 type branchesMsg struct {
 	repo     string
@@ -702,7 +703,14 @@ type model struct {
 	copyNoticeAt              time.Time
 	keyboardEnhancementsKnown bool
 	rightShiftSupported       bool
+	altSupported              bool
 	clipboardCopy             func(string) error
+	copyTemplate              string
+	templateEditing           bool
+	templateDraft             string
+	configPath                string
+	refreshGeneration         uint64
+	refreshRunsAfterRepos     bool
 	attentionCursor           int
 	overviewPane              int // 0: attention, 1: in flight / waiting, 2: recent pushes with idle CI
 	inFlightCursor            int
@@ -749,12 +757,12 @@ func fetchReposCmd(c *apiClient) tea.Cmd {
 		return reposMsg{login, repos, err}
 	}
 }
-func fetchRunsCmd(c *apiClient, repo string) tea.Cmd {
+func fetchRunsCmd(c *apiClient, repo string, generation uint64) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 		defer cancel()
 		runs, err := c.fetchRuns(ctx, repo)
-		return runsMsg{repo, runs, err}
+		return runsMsg{repo: repo, runs: runs, err: err, generation: generation}
 	}
 }
 func fetchAllBranchesCmd(c *apiClient, repo string) tea.Cmd {
@@ -872,6 +880,45 @@ func initialCachePath() string {
 	}
 	return filepath.Join(cacheDir, "gh-fleet", "cache.json")
 }
+type userConfig struct {
+	CopyTemplate string `json:"copy_template,omitempty"`
+}
+
+func initialConfigPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil { return "" }
+	return filepath.Join(dir, "gh-fleet", "config.json")
+}
+
+func loadUserConfig(path string) userConfig {
+	var config userConfig
+	if path != "" {
+		data, err := os.ReadFile(path)
+		if err == nil { _ = json.Unmarshal(data, &config) }
+	}
+	return config
+}
+
+func saveUserConfig(path string, config userConfig) error {
+	if path == "" { return errors.New("user configuration directory is unavailable") }
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil { return err }
+	if err := os.Chmod(dir, 0700); err != nil { return err }
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil { return err }
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil { return err }
+	if err := os.Chmod(tmp, 0600); err != nil { _ = os.Remove(tmp); return err }
+	if err := os.Rename(tmp, path); err != nil { _ = os.Remove(tmp); return err }
+	return nil
+}
+
+func repositoryCopyText(template, repositoryURL string) string {
+	if strings.TrimSpace(template) == "" { return repositoryURL }
+	if strings.Contains(template, "@@@") { return strings.ReplaceAll(template, "@@@", repositoryURL) }
+	return strings.TrimRight(template, "\r\n") + "\n" + repositoryURL
+}
+
 func loadCache(path string) diskCache {
 	var c diskCache
 	data, err := os.ReadFile(path)
@@ -908,6 +955,8 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 		agentEventsPath = agentEventPaths[0]
 	}
 	c := loadCache(cachePath)
+	configPath := initialConfigPath()
+	config := loadUserConfig(configPath)
 	client.etags = c.ETags
 	if client.etags == nil {
 		client.etags = make(map[string]string)
@@ -937,7 +986,7 @@ func newModel(client *apiClient, cachePath string, agentEventPaths ...string) mo
 	if needsActivityHistory {
 		commitsAt = time.Time{}
 	}
-	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, busyRepos: true,
+	return model{api: client, login: c.Login, repos: c.Repos, cachePath: cachePath, configPath: configPath, copyTemplate: config.CopyTemplate, busyRepos: true,
 		animationEnabled: os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
 		animationActive:  os.Getenv("GH_FLEET_NO_ANIMATION") != "1" && os.Getenv("TERM") != "dumb",
 		agentEventsPath:  agentEventsPath, agentTasks: make(map[string]agentTask),
@@ -964,10 +1013,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.keyboardEnhancementsKnown {
 			m.keyboardEnhancementsKnown = true
 			m.rightShiftSupported = false
+			m.altSupported = false
 		}
 	case tea.KeyboardEnhancementsMsg:
 		m.keyboardEnhancementsKnown = true
 		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes()
+		m.altSupported = msg.SupportsAllKeysAsEscapeCodes()
 	case tea.KeyReleaseMsg:
 		return m, nil
 	case animationTickMsg:
@@ -982,6 +1033,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.showHelp {
 			if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 				m.showHelp = false
+			}
+			return m, nil
+		}
+		if m.templateEditing {
+			switch msg.String() {
+			case "esc":
+				m.templateEditing = false
+				m.templateDraft = ""
+				m.lastErr = ""
+			case "ctrl+s":
+				if err := saveUserConfig(m.configPath, userConfig{CopyTemplate: m.templateDraft}); err != nil {
+					m.lastErr = "Template: " + err.Error()
+				} else {
+					m.copyTemplate = m.templateDraft
+					m.templateEditing = false
+					m.copyNotice, m.copyNoticeAt = "Copy template saved", time.Now()
+					m.lastErr = ""
+				}
+			case "backspace":
+				if m.templateDraft != "" {
+					_, size := utf8.DecodeLastRuneInString(m.templateDraft)
+					m.templateDraft = m.templateDraft[:len(m.templateDraft)-size]
+				}
+			case "enter":
+				m.templateDraft += "\n"
+			default:
+				value := msg.Text
+				if value == "" && msg.Code <= unicode.MaxRune && unicode.IsPrint(msg.Code) { value = string(msg.Code) }
+				m.templateDraft += value
 			}
 			return m, nil
 		}
@@ -1009,10 +1089,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
-			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported {
-				m.copySelectedIdleRepository()
+		if (msg.Code == tea.KeyLeftAlt || msg.Code == tea.KeyRightAlt) && !msg.IsRepeat {
+			if m.focus == 0 && m.overviewPane == 2 && m.altSupported {
+				m.templateEditing = true
+				m.templateDraft = m.copyTemplate
+				m.lastErr = ""
 			}
+			return m, nil
+		}
+		if msg.Code == tea.KeyRightShift && !msg.IsRepeat {
+			if m.focus == 0 && m.overviewPane == 2 && m.rightShiftSupported { m.copySelectedIdleRepository() }
 			return m, nil
 		}
 		if msg.Code == tea.KeySpace {
@@ -1307,13 +1393,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastRepos = time.Now()
 			m.lastErr = ""
 			m.cursor = min(m.cursor, max(0, len(m.visibleRepos())-1))
+			m.idleCursor = min(m.idleCursor, max(0, len(idleRepositories(m.repos, time.Now()))-1))
 			saveCache(m)
 			var cmds []tea.Cmd
 			for _, r := range m.repos {
-				if r.Fetched.IsZero() || time.Since(r.Fetched) > allRefreshInterval {
+				if m.refreshRunsAfterRepos || r.Fetched.IsZero() || time.Since(r.Fetched) > allRefreshInterval {
 					m.queueRun(r.FullName, false)
 				}
 			}
+			m.refreshRunsAfterRepos = false
 			cmds = append(cmds, m.drainRunQueue()...)
 			if len(cmds) > 0 {
 				return m, tea.Batch(cmds...)
@@ -1322,6 +1410,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runsMsg:
 		delete(m.busyRuns, msg.repo)
 		m.inFlightRuns = max(0, m.inFlightRuns-1)
+		if msg.generation != m.refreshGeneration {
+			if !m.refreshRunsAfterRepos { m.queueRun(msg.repo, false) }
+			if cmds := m.drainRunQueue(); len(cmds) > 0 { return m, tea.Batch(cmds...) }
+			return m, nil
+		}
 		if msg.err != nil {
 			m.lastErr = msg.err.Error()
 			m.backoff("runs:" + msg.repo)
@@ -1494,6 +1587,10 @@ func (m *model) refreshAll(force bool) []tea.Cmd {
 		m.lastErr = "Repository refresh already in progress; keeping the current snapshot"
 		return nil
 	}
+	m.refreshGeneration++
+	m.refreshRunsAfterRepos = true
+	m.runQueue = nil
+	m.queuedRuns = make(map[string]bool)
 	if force {
 		m.api.mu.Lock()
 		m.api.etags = make(map[string]string)
@@ -1509,10 +1606,8 @@ func (m *model) refreshAll(force bool) []tea.Cmd {
 	for _, repo := range m.repos {
 		delete(m.retryAt, "runs:"+repo.FullName)
 		delete(m.retryAt, "branches:"+repo.FullName)
-		m.queueRun(repo.FullName, false)
 	}
 	cmds := []tea.Cmd{fetchReposCmd(m.api)}
-	cmds = append(cmds, m.drainRunQueue()...)
 	if cmd := m.animationCmdIfNeeded(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -1633,14 +1728,13 @@ func (m model) selectedIdleRepo() *repository {
 
 func (m *model) copySelectedIdleRepository() {
 	repo := m.selectedIdleRepo()
-	if repo == nil || repo.URL == "" {
-		return
-	}
+	if repo == nil || repo.URL == "" { return }
+	copyText := repositoryCopyText(m.copyTemplate, repo.URL)
 	copyFn := m.clipboardCopy
 	if copyFn == nil {
 		copyFn = copyToClipboard
 	}
-	if err := copyFn(repo.URL); err != nil {
+	if err := copyFn(copyText); err != nil {
 		m.lastErr = "Clipboard: " + err.Error()
 		return
 	}
@@ -1730,7 +1824,7 @@ func (m *model) drainRunQueue() []tea.Cmd {
 		}
 		m.busyRuns[name] = true
 		m.inFlightRuns++
-		cmds = append(cmds, fetchRunsCmd(m.api, name))
+		cmds = append(cmds, fetchRunsCmd(m.api, name, m.refreshGeneration))
 	}
 	return cmds
 }
@@ -2116,9 +2210,8 @@ func (m model) View() tea.View {
 }
 
 func (m model) viewContent() string {
-	if m.width == 0 || m.height == 0 {
-		return "Starting GitHub Fleet…"
-	}
+	if m.width == 0 || m.height == 0 { return "Starting GitHub Fleet…" }
+	if m.templateEditing { return m.copyTemplateView() }
 	if m.width < 40 {
 		return fit("Widen terminal to at least 40 columns.", m.width)
 	}
@@ -2142,6 +2235,13 @@ func (m model) viewContent() string {
 	default:
 		return m.overviewView()
 	}
+}
+
+func (m model) copyTemplateView() string {
+	lines := []string{"ALT · COPY TEMPLATE", "Use @@@ where the selected repository URL should appear.", "Multiple @@@ markers are all replaced. Without a marker, the URL is appended.", ""}
+	lines = append(lines, strings.Split(m.templateDraft, "\n")...)
+	lines = append(lines, "", "Ctrl+S save · Enter new line · Esc cancel")
+	return box("REPOSITORY COPY TEMPLATE", lines, m.width-4, m.height-2, true)
 }
 
 func (m model) renderTabs(w int) string {
@@ -4030,11 +4130,11 @@ func stateStyle(r run) lipgloss.Style {
 	}
 }
 func (m model) renderFooter(w int) string {
-	copyHint := "Right Shift copy URL · Kitty protocol"
-	if m.keyboardEnhancementsKnown && m.rightShiftSupported {
-		copyHint = "Right Shift copy URL"
+	copyHint := "Right Shift copy · Alt template · Kitty protocol"
+	if m.keyboardEnhancementsKnown && m.rightShiftSupported && m.altSupported {
+		copyHint = "Right Shift copy · Alt template"
 	} else if m.keyboardEnhancementsKnown {
-		copyHint = "Right Shift unavailable in this terminal"
+		copyHint = "Standalone modifiers unavailable in this terminal"
 	}
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
@@ -4061,7 +4161,9 @@ func (m model) renderFooter(w int) string {
 			left = "↑↓ runs · Enter logs · Space refresh · Delete back"
 		}
 	}
-	if m.filtering {
+	if m.templateEditing {
+		left = "COPY TEMPLATE · Ctrl+S save · Enter newline · Esc cancel"
+	} else if m.filtering {
 		left = "FILTER: " + m.filter + "_   type to search  Enter accept  Esc clear"
 	}
 	right := ""

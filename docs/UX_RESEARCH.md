@@ -109,7 +109,7 @@ The Overview and CI queue include a compact, text-based status distribution bar 
 - `C`: remove the persisted cache file, clear ETags, and fetch a fresh snapshot. Existing on-screen data remains visible until the replacement fetch succeeds.
 - `Delete`: navigate back from a detail view (or clear the active repository filter).
 
-The refresh path retains bounded concurrency and the existing retry/backoff behavior. It refuses to start a second repository snapshot fetch while one is already in progress.
+The refresh path retains bounded concurrency and the existing retry/backoff behavior. It refuses to start a second repository snapshot fetch while one is already in progress. A manual refresh now fetches the repository snapshot before queueing Actions refreshes. Each Actions request carries a refresh generation; responses from older generations are discarded and requeued, preventing an in-flight pre-refresh response from repopulating the refreshed list with stale CI state.
 
 
 
@@ -140,6 +140,6 @@ The Overview contains a separate **Recent Pushes · CI Idle** panel. It is inten
 
 Pull-request update timestamps and completed workflow timestamps do not replace the repository's push timestamp. The panel is sorted newest push first. At a 30-row terminal height, it has room to display at least five repositories; the panel height grows with available terminal space.
 
-Use Left / Right to cycle Overview panels and Up / Down to select a row. Enter or o opens the repository. **Right Shift by itself** copies the full repository URL; no second key is required. This uses the Kitty keyboard protocol's distinct right-shift key event and therefore requires a terminal that supports both all-key reporting and key press/release reporting (for example, kitty, iTerm2, Ghostty, WezTerm, or Alacritty). gh-fleet detects support and labels the shortcut unavailable when the terminal cannot report standalone modifier keys. macOS uses `pbcopy`; Linux supports `wl-copy`, `xclip`, or `xsel`; Windows uses `clip`.
+Use Left / Right to cycle Overview panels and Up / Down to select a row. Enter or o opens the repository. **Right Shift by itself** copies the selected repository URL (or the configured template output); no second key is required. **Alt by itself** opens the copy-template editor; Ctrl+S saves and Esc cancels. The template uses `@@@` as the URL placeholder and is stored separately from the removable cache. This uses the Kitty keyboard protocol's distinct right-shift key event and therefore requires a terminal that supports both all-key reporting and key press/release reporting (for example, kitty, iTerm2, Ghostty, WezTerm, or Alacritty). gh-fleet detects support and labels the shortcut unavailable when the terminal cannot report standalone modifier keys. macOS uses `pbcopy`; Linux supports `wl-copy`, `xclip`, or `xsel`; Windows uses `clip`.
 
 Bubble Tea v2 is used for the richer terminal keyboard events; the minimum Go version is now 1.25.
