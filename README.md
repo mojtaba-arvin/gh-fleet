@@ -37,10 +37,10 @@ True agent lifecycle state requires explicit events from the agent runner/orches
 ## Requirements
 
 - GitHub CLI installed and authenticated with gh auth login.
-- Go 1.24 or newer to build or install from source.
+- Go 1.25 or newer to build or install from source.
 - A terminal with at least 80 columns is recommended for the side-by-side overview. The layout stacks vertically at narrower widths and supports terminals down to 40 columns.
 
-The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor.
+The authenticated GitHub CLI account needs access to the repositories and Actions data you want to monitor. The standalone Right Shift shortcut requires a terminal with Kitty keyboard protocol support.
 
 ## Install
 
@@ -67,7 +67,7 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | Tab / Shift+Tab | Switch between Overview, Repositories, and CI queue |
 | 1 / 2 / 3 | Jump directly to Overview, Repositories, or CI queue |
 | ↑ / ↓, j / k | Move through the focused list |
-| ← / → on Overview | Switch focus between Needs attention and In flight / waiting |
+| ← / → on Overview | Cycle through attention, in-flight, and recent-push / CI-idle panels |
 | Enter on an Overview item | Open its GitHub PR or workflow page |
 | l on a workflow item | Open live workflow logs |
 | Enter on a repository | Open repository detail; use ↑ / ↓ to select a PR |
@@ -82,6 +82,7 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | R | Force refresh and bypass cached ETags |
 | C | Clear the local disk cache and fetch a fresh snapshot |
 | o | Open the selected GitHub page in a browser |
+| Right Shift alone | Copy the selected repository URL in the recent-push / CI-idle panel (Kitty keyboard protocol required) |
 | ? | Show help |
 | q | Quit |
 
