@@ -937,10 +937,9 @@ func TestRightShiftCapabilityIsDetectedOrTimesOutCleanly(t *testing.T) {
 	}
 }
 
-
 func TestRepositoryCopyTextUsesTemplateAndFallsBack(t *testing.T) {
 	const url = "https://github.com/acme/api"
-	cases := []struct { name, template, want string }{
+	cases := []struct{ name, template, want string }{
 		{name: "empty", want: url},
 		{name: "whitespace", template: "  \n ", want: url},
 		{name: "replace marker", template: "Review: @@@", want: "Review: " + url},

@@ -880,6 +880,7 @@ func initialCachePath() string {
 	}
 	return filepath.Join(cacheDir, "gh-fleet", "cache.json")
 }
+
 type userConfig struct {
 	CopyTemplate string `json:"copy_template,omitempty"`
 }
