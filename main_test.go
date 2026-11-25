@@ -822,7 +822,7 @@ func TestIdleRepositoriesUseSeparatePushAndCIInactivityWindows(t *testing.T) {
 }
 
 func TestIdleCIThresholdIncludesExactlyTenMinutes(t *testing.T) {
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Second)
 	repo := repository{
 		FullName: "acme/ten-minute-boundary",
 		PushedAt: now.Add(-time.Hour).Format(time.RFC3339),
