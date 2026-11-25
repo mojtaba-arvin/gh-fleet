@@ -2457,35 +2457,6 @@ func (m model) overviewView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, footer)
 }
 
-
-	w, h := m.width, m.height
-	header := m.renderHeader(w)
-	tabs := m.renderTabs(w)
-	summary := m.renderOverviewSummary()
-	footer := m.renderFooter(w)
-	ciChart := m.renderCIHealthChart(w)
-	if w >= 108 && h >= 17 {
-		bodyH := max(5, h-7)
-		gap := 1
-		leftW := int(float64(w) * 0.61)
-		rightW := w - leftW - gap
-		left := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
-		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
-		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", body, footer)
-	}
-	bodyH := max(3, h-7)
-	if bodyH < 7 {
-		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, true)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, footer)
-	}
-	attentionH := max(3, (bodyH-1)*2/3)
-	waitH := bodyH - attentionH - 1
-	attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
-	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, m.overviewPane == 1)
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, footer)
-}
-
 func repoGroupRank(repo repository, now time.Time) int {
 	switch {
 	case runningRuns(repo) > 0:
