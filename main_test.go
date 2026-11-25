@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
