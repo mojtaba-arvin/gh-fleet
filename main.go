@@ -22,13 +22,15 @@ import (
 	"unicode/utf8"
 
 	ntSparkline "github.com/NimbleMarkets/ntcharts/sparkline"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
 const (
-	idleRepositoryThreshold = 10 * time.Minute
+	idleCIInactivityThreshold = 10 * time.Minute
+	recentPushWindow = 3 * 24 * time.Hour
+	idlePanelMaxHeight = 8
 	apiRoot                 = "https://api.github.com"
 	graphQLURL              = "https://api.github.com/graphql"
 	allRefreshInterval      = 60 * time.Second
@@ -696,6 +698,8 @@ type model struct {
 	idleCursor          int
 	copyNotice          string
 	copyNoticeAt        time.Time
+	keyboardEnhancementsKnown bool
+	rightShiftSupported bool
 	attentionCursor     int
 	overviewPane        int // 0: attention, 1: in flight / waiting
 	inFlightCursor      int
@@ -949,6 +953,11 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.KeyboardEnhancementsMsg:
+		m.keyboardEnhancementsKnown = true
+		m.rightShiftSupported = msg.SupportsAllKeysAsEscapeCodes() && msg.SupportsEventTypes()
+	case tea.KeyReleaseMsg:
+		return m, nil
 	case animationTickMsg:
 		m.animationFrame = (m.animationFrame + 1) % 8
 		if m.animationEnabled {
@@ -957,7 +966,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.animationActive = false
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.showHelp {
 			if msg.String() == "?" || msg.String() == "esc" || msg.String() == "q" {
 				m.showHelp = false
@@ -977,14 +986,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.filter = m.filter[:len(m.filter)-size]
 				}
 			default:
-				if msg.Type == tea.KeyRunes {
+				if msg.Text != "" {
 					m.filter += msg.String()
 					m.cursor = 0
 				}
 			}
 			return m, nil
 		}
-		if msg.String() == " " {
+		if msg.String() == "space" {
 			return m, tea.Batch(m.refreshAll(false)...)
 		}
 		if msg.String() == "R" {
@@ -1098,16 +1107,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filter = ""
 			} else if m.detail {
 				m.detail = false
-			}
-		case "Y": // Shift+Y is the terminal-safe equivalent of a standalone Shift shortcut.
-			if m.focus == 0 && m.overviewPane == 2 {
-				if repo := m.selectedIdleRepo(); repo != nil {
-					if err := copyToClipboard(repo.URL); err != nil {
-						m.lastErr = "Clipboard: " + err.Error()
-					} else {
-						m.copyNotice, m.copyNoticeAt = "Copied "+repo.FullName, time.Now()
-					}
-				}
 			}
 		case "enter":
 			switch m.focus {
@@ -1554,22 +1553,12 @@ func (m model) inFlightItems() []inFlightItem {
 	return collectInFlightItems(m.repos, time.Now(), agentTasks)
 }
 
-func repoLastActivity(repo repository) time.Time {
+func latestCIActivity(repo repository) time.Time {
 	var latest time.Time
-	consider := func(value string) {
-		if parsed := parseTime(value); !parsed.IsZero() && parsed.After(latest) {
-			latest = parsed
-		}
-	}
-	consider(repo.PushedAt)
-	for _, pr := range repo.PullRequests {
-		consider(pr.UpdatedAt)
-	}
 	for _, item := range repo.Runs {
-		consider(item.UpdatedAt)
-		if item.UpdatedAt == "" {
-			consider(item.CreatedAt)
-		}
+		value := item.UpdatedAt
+		if value == "" { value = item.CreatedAt }
+		if parsed := parseTime(value); !parsed.IsZero() && parsed.After(latest) { latest = parsed }
 	}
 	return latest
 }
@@ -1578,24 +1567,23 @@ func idleRepositories(repos []repository, now time.Time) []*repository {
 	var idle []*repository
 	for i := range repos {
 		repo := &repos[i]
-		if runningRuns(*repo) > 0 || queuedRuns(*repo) > 0 {
-			continue
-		}
-		last := repoLastActivity(*repo)
-		if last.IsZero() || now.Sub(last) <= idleRepositoryThreshold {
-			continue
-		}
+		pushed := parseTime(repo.PushedAt)
+		if pushed.IsZero() || pushed.After(now) || now.Sub(pushed) > recentPushWindow { continue }
+		hasActiveCI := false
+		for _, item := range repo.Runs { if isActive(item) { hasActiveCI = true; break } }
+		if hasActiveCI { continue }
+		lastCI := latestCIActivity(*repo)
+		if !lastCI.IsZero() && (lastCI.After(now) || now.Sub(lastCI) <= idleCIInactivityThreshold) { continue }
 		idle = append(idle, repo)
 	}
 	sort.SliceStable(idle, func(i, j int) bool {
-		a, b := repoLastActivity(*idle[i]), repoLastActivity(*idle[j])
-		if !a.Equal(b) {
-			return a.Before(b)
-		}
+		a, b := parseTime(idle[i].PushedAt), parseTime(idle[j].PushedAt)
+		if !a.Equal(b) { return a.After(b) }
 		return idle[i].FullName < idle[j].FullName
 	})
 	return idle
 }
+
 
 func (m model) selectedIdleRepo() *repository {
 	rows := idleRepositories(m.repos, time.Now())
@@ -1607,9 +1595,9 @@ func (m model) selectedIdleRepo() *repository {
 
 func (m model) renderIdleRepositoryRows(w, h int) []string {
 	rows := idleRepositories(m.repos, time.Now())
-	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST ACTIVITY", w))}
+	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST PUSH", w))}
 	if len(rows) == 0 {
-		message := "No repositories match: CI idle and last activity >10m."
+		message := "No repositories match: pushed within 3d; CI idle ≥10m."
 		if len(m.repos) == 0 {
 			message = "Waiting for repository snapshot…"
 		}
@@ -2064,7 +2052,15 @@ func box(title string, content []string, w, h int, active bool) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	view := tea.NewView(m.viewContent())
+	view.AltScreen = true
+	view.KeyboardEnhancements.ReportEventTypes = true
+	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
+	return view
+}
+
+func (m model) viewContent() string {
 	if m.width == 0 || m.height == 0 {
 		return "Starting GitHub Fleet…"
 	}
@@ -2501,9 +2497,11 @@ func (m model) overviewView() string {
 	w, h := m.width, m.height
 	header, tabs := m.renderHeader(w), m.renderTabs(w)
 	summary, footer, ciChart := m.renderOverviewSummary(), m.renderFooter(w), m.renderCIHealthChart(w)
-	if h >= 18 {
-		bodyH := max(5, h-12)
-		idle := box("IDLE REPOSITORIES · NO RUNNING / QUEUED CI · INACTIVE >10M", m.renderIdleRepositoryRows(w-2, 3), w, 5, m.overviewPane == 2)
+	if h >= 22 {
+		idleHeight := min(idlePanelMaxHeight, max(5, h-22))
+		fixedHeight := lipgloss.Height(header) + 5 + idleHeight
+		bodyH := max(5, h-fixedHeight)
+		idle := box("RECENT PUSHES · CI IDLE ≥10M · PUSHED ≤3D", m.renderIdleRepositoryRows(w-2, idleHeight-2), w, idleHeight, m.overviewPane == 2)
 		if w >= 108 {
 			leftW := int(float64(w) * 0.61)
 			rightW := w - leftW - 1
@@ -2511,7 +2509,7 @@ func (m model) overviewView() string {
 			right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
 			return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), idle, footer)
 		}
-		attentionH := max(3, bodyH-4)
+		attentionH := max(3, h-lipgloss.Height(header)-11-idleHeight)
 		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
 		waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, 3), w, 5, m.overviewPane == 1)
 		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, idle, footer)
@@ -3980,7 +3978,7 @@ func (m model) renderFooter(w int) string {
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
-		left = "↑↓ select · ←/→ panels · Y copy URL · Space refresh · Delete back · r/R/C controls"
+		left = "↑↓ select · ←/→ panels · Right Shift copy URL · Space refresh · Delete back · r/R/C controls"
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · Space refresh · Delete back · R force · C cache · o browser"
 		if m.detail {
@@ -3992,7 +3990,7 @@ func (m model) renderFooter(w int) string {
 	if w < 70 {
 		switch m.focus {
 		case 0:
-			left = "↑↓ select · ←/→ panels · Y copy URL · Space refresh · Delete back"
+			left = "↑↓ select · ←/→ panels · Right Shift copy URL · Space refresh · Delete back"
 		case 1:
 			left = "↑↓ select · Enter detail · Space refresh · Delete back"
 			if m.detail {
@@ -4067,7 +4065,7 @@ func (m model) helpView() string {
 		"  Enter               Open selected item, enter repository detail, or open CI logs",
 		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
-		"  Y (Shift+Y)          Copy selected idle repository URL",
+		"  Right Shift           Copy selected idle repository URL",
 		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
@@ -4085,7 +4083,7 @@ func (m model) helpView() string {
 		"  Commit authors and Actions trigger actors are observed identities, not agent owners.",
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
-		"  Idle means no running/queued CI and last push, PR update, or Actions update older than 10 minutes.",
+		"  Idle list: last push within 3 days, no active CI, and no CI run update in the last 10 minutes.",
 		"  Cached data remains visible during API outages; stale data is labelled.",
 		"  r refreshes; R bypasses ETags; C clears local cache and refreshes.",
 		"  Agent events are read-only from --agent-events or GH_FLEET_AGENT_EVENTS.",
@@ -4115,7 +4113,7 @@ func main() {
 	if cachePath == "" {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet: cache directory is unavailable; cached startup will be disabled")
 	}
-	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag), tea.WithAltScreen())
+	program := tea.NewProgram(newModel(client, cachePath, *agentEventsFlag))
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "GitHub Fleet:", err)
 		os.Exit(1)
