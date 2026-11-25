@@ -797,20 +797,20 @@ func TestIdleRepositoriesUseSeparatePushAndCIInactivityWindows(t *testing.T) {
 	push := func(age time.Duration) string { return now.Add(-age).Format(time.RFC3339) }
 	ci := func(age time.Duration) string { return now.Add(-age).Format(time.RFC3339) }
 	repos := []repository{
-		{FullName: "acme/open-ielts", PushedAt: push(2 * time.Minute), Runs: []run{{Status: "completed", UpdatedAt: ci(30 * time.Minute)}}},
-		{FullName: "acme/ai-service", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(11 * time.Minute)}}},
-		{FullName: "acme/voxpipe", PushedAt: push(time.Hour)},
-		{FullName: "acme/gh-fleet", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(3 * time.Hour)}}},
-		{FullName: "acme/helmet", PushedAt: push(time.Hour)},
-		{FullName: "acme/ci-recent", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(9 * time.Minute)}}},
-		{FullName: "acme/ci-running", PushedAt: push(time.Hour), Runs: []run{{Status: "in_progress"}}},
-		{FullName: "acme/ci-queued", PushedAt: push(time.Hour), Runs: []run{{Status: "waiting"}}},
-		{FullName: "acme/too-old", PushedAt: push(4 * 24 * time.Hour)},
-		{FullName: "acme/future", PushedAt: now.Add(time.Minute).Format(time.RFC3339)},
-		{FullName: "acme/unknown"},
+		{FullName: "mojtaba-arvin/open-ielts-strategy", PushedAt: push(2 * time.Minute), Runs: []run{{Status: "completed", UpdatedAt: ci(30 * time.Minute)}}},
+		{FullName: "mojtaba-arvin/ai-service-marketplace", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(11 * time.Minute)}}},
+		{FullName: "mojtaba-arvin/voxpipe", PushedAt: push(time.Hour)},
+		{FullName: "mojtaba-arvin/gh-fleet", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(3 * time.Hour)}}},
+		{FullName: "mojtaba-arvin/health-monitoring-helmet", PushedAt: push(time.Hour)},
+		{FullName: "mojtaba-arvin/ci-recent", PushedAt: push(time.Hour), Runs: []run{{Status: "completed", UpdatedAt: ci(9 * time.Minute)}}},
+		{FullName: "mojtaba-arvin/ci-running", PushedAt: push(time.Hour), Runs: []run{{Status: "in_progress"}}},
+		{FullName: "mojtaba-arvin/ci-queued", PushedAt: push(time.Hour), Runs: []run{{Status: "waiting"}}},
+		{FullName: "mojtaba-arvin/too-old", PushedAt: push(4 * 24 * time.Hour)},
+		{FullName: "mojtaba-arvin/future", PushedAt: now.Add(time.Minute).Format(time.RFC3339)},
+		{FullName: "mojtaba-arvin/unknown"},
 	}
 	got := idleRepositories(repos, now)
-	want := []string{"acme/open-ielts", "acme/ai-service", "acme/gh-fleet", "acme/helmet", "acme/voxpipe"}
+	want := []string{"mojtaba-arvin/open-ielts-strategy", "mojtaba-arvin/ai-service-marketplace", "mojtaba-arvin/gh-fleet", "mojtaba-arvin/health-monitoring-helmet", "mojtaba-arvin/voxpipe"}
 	if len(got) != len(want) {
 		t.Fatalf("idle repositories = %d, want %d: %+v", len(got), len(want), got)
 	}
