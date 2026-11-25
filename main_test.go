@@ -848,24 +848,27 @@ func TestIdleRepositoryUsesPushTimestampNotRecentPROrCIUpdate(t *testing.T) {
 	}
 }
 
-func TestIdleRepositoryPanelShowsFiveRowsAtThirtyTerminalRows(t *testing.T) {
+func TestCIIdleRepositoriesRemainVisibleInHealthPanel(t *testing.T) {
 	now := time.Now().UTC()
 	repos := make([]repository, 5)
 	for i := range repos {
 		repos[i] = repository{FullName: fmt.Sprintf("acme/repo-%d", i), PushedAt: now.Add(-time.Duration(i+1) * time.Hour).Format(time.RFC3339)}
 	}
 	m := model{width: 120, height: 30, repos: repos}
-	view := m.viewContent()
+	view := strings.Join(m.renderAttentionRows(118, 10), "\n")
 	for i := range repos {
 		if !strings.Contains(view, repos[i].FullName) {
-			t.Errorf("overview omitted %s:\n%s", repos[i].FullName, view)
+			t.Errorf("repository health omitted %s:\n%s", repos[i].FullName, view)
 		}
+	}
+	if !strings.Contains(view, activeStyle.Render("acme/repo-0")) {
+		t.Fatalf("CI-idle repository name was not highlighted yellow:\n%s", view)
 	}
 }
 
 func TestRightShiftAloneCopiesSelectedIdleRepositoryURL(t *testing.T) {
 	m := model{
-		focus: 0, overviewPane: 2, idleCursor: 0, rightShiftSupported: true,
+		focus: 0, overviewPane: 0, rightShiftSupported: true,
 		repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}},
 	}
 	var copied string
@@ -880,7 +883,7 @@ func TestRightShiftAloneCopiesSelectedIdleRepositoryURL(t *testing.T) {
 func TestOnlyRightShiftTriggersIdleRepositoryCopy(t *testing.T) {
 	for _, key := range []rune{tea.KeyLeftShift, 'Y'} {
 		m := model{
-			focus: 0, overviewPane: 2, rightShiftSupported: true,
+			focus: 0, overviewPane: 0, rightShiftSupported: true,
 			repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}},
 		}
 		copied := false
@@ -899,7 +902,7 @@ func TestViewRequestsRightShiftKeyEvents(t *testing.T) {
 	}
 }
 
-func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
+func TestOverviewHasTwoPanesAndHighlightsCIIdleRepositories(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{width: 120, height: 30, repos: []repository{
 		{FullName: "acme/older", URL: "https://github.com/acme/older", PushedAt: now.Add(-time.Hour).Format(time.RFC3339)},
@@ -907,19 +910,20 @@ func TestOverviewIdlePanelCanBeFocusedAndNavigated(t *testing.T) {
 	}}
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
+	if m.overviewPane != 1 {
+		t.Fatalf("right navigation selected pane %d, want in-flight pane 1", m.overviewPane)
+	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(model)
-	if m.overviewPane != 2 {
-		t.Fatalf("right navigation selected pane %d, want idle repositories pane 2", m.overviewPane)
+	if m.overviewPane != 0 {
+		t.Fatalf("right navigation did not wrap to repository health: %d", m.overviewPane)
 	}
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	m = updated.(model)
-	selected := m.selectedIdleRepo()
-	if selected == nil || selected.FullName != "acme/older" {
-		t.Fatalf("selected idle repository = %+v, want acme/older", selected)
+	view := strings.Join(m.renderAttentionRows(118, 10), "\n")
+	if !strings.Contains(view, activeStyle.Render("acme/newer")) || !strings.Contains(view, activeStyle.Render("acme/older")) {
+		t.Fatalf("recently pushed repositories are not highlighted in repository health:\n%s", view)
 	}
-	if view := m.viewContent(); !strings.Contains(view, "RECENT PUSHES") || !strings.Contains(view, "PUSHED ≤3D") {
-		t.Fatalf("overview does not render the separate idle repository panel:\n%s", view)
+	if view := m.viewContent(); strings.Contains(view, "RECENT PUSHES") || strings.Contains(view, "PUSHED ≤3D") {
+		t.Fatalf("overview still renders the removed idle panel:\n%s", view)
 	}
 }
 
@@ -956,7 +960,7 @@ func TestRepositoryCopyTextUsesTemplateAndFallsBack(t *testing.T) {
 }
 
 func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
-	m := model{focus: 0, overviewPane: 2, idleCursor: 0, rightShiftSupported: true, copyTemplate: "Please inspect @@@",
+	m := model{focus: 0, overviewPane: 0, rightShiftSupported: true, copyTemplate: "Please inspect @@@",
 		repos: []repository{{FullName: "acme/active", URL: "https://github.com/acme/active", PushedAt: time.Now().Add(-time.Hour).Format(time.RFC3339)}}}
 	var copied string
 	m.clipboardCopy = func(value string) error { copied = value; return nil }
@@ -968,7 +972,7 @@ func TestRightShiftCopiesTemplatedRepositoryURL(t *testing.T) {
 }
 
 func TestAltOpensCopyTemplateEditor(t *testing.T) {
-	m := model{focus: 0, overviewPane: 2, altSupported: true, copyTemplate: "Review @@@", width: 100, height: 20}
+	m := model{focus: 0, overviewPane: 0, altSupported: true, copyTemplate: "Review @@@", width: 100, height: 20}
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyLeftAlt})
 	got := updated.(model)
 	if !got.templateEditing || got.templateDraft != "Review @@@" {
@@ -1008,5 +1012,38 @@ func TestStaleRunsResponseIsDiscardedAndRequeuedAfterRefresh(t *testing.T) {
 	}
 	if cmd == nil || !got.busyRuns["acme/api"] || got.inFlightRuns != 1 {
 		t.Fatalf("stale response was not requeued: busy=%v inFlight=%d", got.busyRuns, got.inFlightRuns)
+	}
+}
+
+func TestRecentPushCIIdlePredicate(t *testing.T) {
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		repo repository
+		want bool
+	}{
+		{name: "recent push and no CI history", repo: repository{PushedAt: now.Add(-24 * time.Hour).Format(time.RFC3339)}, want: true},
+		{name: "push older than three days", repo: repository{PushedAt: now.Add(-4 * 24 * time.Hour).Format(time.RFC3339)}, want: false},
+		{name: "active CI", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "in_progress"}}}, want: false},
+		{name: "CI activity less than ten minutes ago", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "completed", UpdatedAt: now.Add(-5 * time.Minute).Format(time.RFC3339)}}}, want: false},
+		{name: "CI activity at ten minute boundary", repo: repository{PushedAt: now.Add(-time.Hour).Format(time.RFC3339), Runs: []run{{Status: "completed", UpdatedAt: now.Add(-10 * time.Minute).Format(time.RFC3339)}}}, want: true},
+		{name: "missing push date", repo: repository{}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRecentPushCIIdle(tc.repo, now); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCopySelectedRepositoryUsesConfiguredTemplate(t *testing.T) {
+	m := model{cursor: 0, copyTemplate: "Review @@@", repos: []repository{{FullName: "acme/api", Name: "api", URL: "https://github.com/acme/api"}}}
+	var copied string
+	m.clipboardCopy = func(value string) error { copied = value; return nil }
+	m.copySelectedRepository()
+	if copied != "Review https://github.com/acme/api" {
+		t.Fatalf("copied %q", copied)
 	}
 }
