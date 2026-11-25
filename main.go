@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -997,8 +998,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.filter = m.filter[:len(m.filter)-size]
 				}
 			default:
-				if msg.Text != "" {
-					m.filter += msg.String()
+				if msg.Text != "" || (msg.Code <= unicode.MaxRune && unicode.IsPrint(msg.Code)) {
+					value := msg.Text
+					if value == "" {
+						value = msg.String()
+						if msg.Code == tea.KeySpace { value = " " }
+					}
+					m.filter += value
 					m.cursor = 0
 				}
 			}
@@ -2106,6 +2112,7 @@ func (m model) View() tea.View {
 	view.AltScreen = true
 	view.KeyboardEnhancements.ReportEventTypes = true
 	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
+	view.KeyboardEnhancements.ReportAssociatedText = true
 	return view
 }
 
