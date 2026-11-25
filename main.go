@@ -1045,6 +1045,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.altSupported = msg.SupportsAllKeysAsEscapeCodes()
 	case tea.KeyReleaseMsg:
 		return m, nil
+	case tea.PasteMsg:
+		if m.templateEditing {
+			m.templateDraft += msg.Content
+			return m, nil
+		}
+		if m.filtering {
+			m.filter += msg.Content
+			m.cursor = 0
+			return m, nil
+		}
 	case animationTickMsg:
 		m.animationFrame = (m.animationFrame + 1) % 8
 		if m.animationEnabled {
