@@ -1003,7 +1003,7 @@ func TestTemplatePromptAcceptsMultilinePasteWithoutDisplayingIt(t *testing.T) {
 	if strings.Contains(got.viewContent(), pasted) {
 		t.Fatal("template contents were exposed in the prompt")
 	}
-	updated, _ = got.Update(tea.KeyPressMsg{Code: tea.KeyCtrlS})
+	updated, _ = got.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	got = updated.(model)
 	if got.templateEditing || got.copyTemplate != pasted || loadUserConfig(got.configPath).CopyTemplate != pasted {
 		t.Fatalf("pasted template was not saved: %+v", got)
