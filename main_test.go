@@ -734,7 +734,6 @@ func TestCompactRepositoryPortfolioKeepsCIVisibleInsideGroups(t *testing.T) {
 	}
 }
 
-
 func TestCountColorsUseSeverityBandsAndRequestedZeroSemantics(t *testing.T) {
 	if prCountStyle(0).GetForeground() == prCountStyle(1).GetForeground() {
 		t.Fatal("zero PR count must be visually distinct from nonzero PR counts")
