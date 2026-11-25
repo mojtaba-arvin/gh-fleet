@@ -992,7 +992,6 @@ func TestTDoesNotOpenTemplateOutsideRepositoryHealth(t *testing.T) {
 	}
 }
 
-
 func TestTemplatePromptAcceptsMultilinePasteWithoutDisplayingIt(t *testing.T) {
 	m := model{focus: 0, overviewPane: 0, templateEditing: true, configPath: filepath.Join(t.TempDir(), "config.json"), width: 100, height: 20}
 	pasted := "Review this repository:\n@@@\nPlease check the deployment notes."
