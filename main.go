@@ -1095,7 +1095,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.detail {
 				m.detail = false
 			}
-		case "y": // Shift+Y is the terminal-safe equivalent of a standalone Shift shortcut.
+		case "Y": // Shift+Y is the terminal-safe equivalent of a standalone Shift shortcut.
 			if m.focus == 0 && m.overviewPane == 2 {
 				if repo := m.selectedIdleRepo(); repo != nil {
 					if err := copyToClipboard(repo.URL); err != nil { m.lastErr = "Clipboard: " + err.Error() } else {
@@ -1197,10 +1197,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "home", "g":
 			switch m.focus {
 			case 0:
-				if m.overviewPane == 1 {
-					m.inFlightCursor = 0
-				} else {
-					m.cursor = 0
+				switch m.overviewPane {
+				case 1: m.inFlightCursor = 0
+				case 2: m.idleCursor = 0
+				default: m.cursor = 0
 				}
 			case 1:
 				if m.detail {
@@ -1214,10 +1214,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G":
 			switch m.focus {
 			case 0:
-				if m.overviewPane == 1 {
-					m.inFlightCursor = max(0, len(m.inFlightItems())-1)
-				} else {
-					m.cursor = max(0, len(m.visibleRepos())-1)
+				switch m.overviewPane {
+				case 1: m.inFlightCursor = max(0, len(m.inFlightItems())-1)
+				case 2: m.idleCursor = max(0, len(idleRepositories(m.repos, time.Now()))-1)
+				default: m.cursor = max(0, len(m.visibleRepos())-1)
 				}
 			case 1:
 				if m.detail {
