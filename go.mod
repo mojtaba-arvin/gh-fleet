@@ -1,10 +1,10 @@
 module github.com/mojtaba-arvin/gh-fleet
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/NimbleMarkets/ntcharts v0.5.2
-	github.com/charmbracelet/bubbletea v1.3.10
+	charm.land/bubbletea/v2 v2.0.3
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.10.1
 )
