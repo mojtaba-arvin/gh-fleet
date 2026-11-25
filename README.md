@@ -82,7 +82,7 @@ The interface uses a dark, high-contrast operator palette with distinct colors f
 | R | Force refresh and bypass cached ETags |
 | C | Clear the local disk cache and fetch a fresh snapshot |
 | o | Open the selected GitHub page in a browser |
-| Right Shift alone | Copy the selected repository URL or template output in the repository health panel (Kitty keyboard protocol required) |
+| c | Copy the selected repository URL or template output in Repository Health; a ✓ confirmation is shown in the footer |
 | t | Open a hidden paste prompt for the repository copy template; paste any length, use `@@@` for the URL, Ctrl+S to save, Esc to cancel |
 | ? | Show help |
 | q | Quit |

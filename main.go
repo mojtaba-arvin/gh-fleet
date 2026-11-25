@@ -4188,6 +4188,10 @@ func (m model) renderFooter(w int) string {
 	if width(left)+width(right)+1 > w {
 		right = ""
 	}
+	if m.copyNotice != "" && time.Since(m.copyNoticeAt) < 4*time.Second && m.lastErr == "" {
+		left = fit(goodStyle.Render("✓ "+m.copyNotice), w)
+		right = ""
+	}
 	left = fit(left, w)
 	if right != "" {
 		left = fit(left, max(1, w-width(right)-1))

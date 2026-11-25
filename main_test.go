@@ -1020,8 +1020,10 @@ func TestCKeyCopiesSelectedRepositoryAndShowsSuccessNotice(t *testing.T) {
 	if copied != "https://github.com/acme/api" || !strings.Contains(got.copyNotice, "acme/api") {
 		t.Fatalf("c did not copy with confirmation: copied=%q notice=%q", copied, got.copyNotice)
 	}
-	if !strings.Contains(got.renderFooter(100), "✓ Copied acme/api") {
-		t.Fatalf("copy confirmation marker not visible in footer: %s", got.renderFooter(100))
+	for _, width := range []int{100, 36} {
+		if !strings.Contains(got.renderFooter(width), "✓ Copied acme/api") {
+			t.Fatalf("copy confirmation marker not visible at width %d: %s", width, got.renderFooter(width))
+		}
 	}
 }
 
