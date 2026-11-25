@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
+func TestDefaultDashboardRendersRepositoryHealthAndCIState(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
 		width: 120, height: 30, lastRepos: now,
@@ -27,7 +27,7 @@ func TestDefaultDashboardRendersHumanAttentionQueue(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"DELIVERY OPERATIONS", "REPOSITORY HEALTH", "CI FAILED", "CHANGES REQUESTED", "IN FLIGHT / WAITING"} {
+	for _, want := range []string{"DELIVERY OPERATIONS", "REPOSITORY HEALTH", "CI FAILED", "IN FLIGHT / WAITING"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
 		}
@@ -455,7 +455,7 @@ func TestAttentionThresholdsDoNotLabelRecentWorkAsStuck(t *testing.T) {
 	}
 }
 
-func TestOverviewDefaultsToHumanActionQueues(t *testing.T) {
+func TestOverviewDefaultsToRepositoryAndWorkflowQueues(t *testing.T) {
 	now := time.Now().UTC()
 	m := model{
 		width: 120, height: 30, login: "operator", lastRepos: now,
@@ -468,7 +468,7 @@ func TestOverviewDefaultsToHumanActionQueues(t *testing.T) {
 		}},
 	}
 	view := m.View()
-	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "REPOSITORY HEALTH", "IN FLIGHT / WAITING", "REVIEW NEEDED"} {
+	for _, want := range []string{"DELIVERY OPERATIONS", "Overview", "REPOSITORY HEALTH", "IN FLIGHT / WAITING", "ATTENTION 1"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("operator overview does not contain %q:\n%s", want, view)
 		}
