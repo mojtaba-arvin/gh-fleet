@@ -946,7 +946,7 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case animationTickMsg:
-				m.animationFrame = (m.animationFrame + 1) % 8
+		m.animationFrame = (m.animationFrame + 1) % 8
 		if m.animationEnabled {
 			return m, animationCmd()
 		}
