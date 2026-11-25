@@ -28,6 +28,7 @@ import (
 )
 
 const (
+	idleRepositoryThreshold = 10 * time.Minute
 	apiRoot                 = "https://api.github.com"
 	graphQLURL              = "https://api.github.com/graphql"
 	allRefreshInterval      = 60 * time.Second
@@ -692,6 +693,9 @@ type model struct {
 	repos               []repository
 	width, height       int
 	cursor, runCursor   int
+	idleCursor          int
+	copyNotice          string
+	copyNoticeAt        time.Time
 	attentionCursor     int
 	overviewPane        int // 0: attention, 1: in flight / waiting
 	inFlightCursor      int
@@ -1079,11 +1083,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = 2
 		case "left":
 			if m.focus == 0 {
-				m.overviewPane = 0
+				m.overviewPane = (m.overviewPane + 2) % 3
 			}
 		case "right":
 			if m.focus == 0 {
-				m.overviewPane = 1
+				m.overviewPane = (m.overviewPane + 1) % 3
 			}
 		case "tab":
 			m.focus = (m.focus + 1) % 3
@@ -1095,12 +1099,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.detail {
 				m.detail = false
 			}
+		case "Y": // Shift+Y is the terminal-safe equivalent of a standalone Shift shortcut.
+			if m.focus == 0 && m.overviewPane == 2 {
+				if repo := m.selectedIdleRepo(); repo != nil {
+					if err := copyToClipboard(repo.URL); err != nil {
+						m.lastErr = "Clipboard: " + err.Error()
+					} else {
+						m.copyNotice, m.copyNoticeAt = "Copied "+repo.FullName, time.Now()
+					}
+				}
+			}
 		case "enter":
 			switch m.focus {
 			case 0:
 				if m.overviewPane == 1 {
 					if item := m.selectedInFlight(); item != nil && item.URL != "" {
 						_ = openURL(item.URL)
+					}
+				} else if m.overviewPane == 2 {
+					if repo := m.selectedIdleRepo(); repo != nil && repo.URL != "" {
+						_ = openURL(repo.URL)
 					}
 				} else if repo := m.selectedRepo(); repo != nil && repo.URL != "" {
 					_ = openURL(repo.URL)
@@ -1153,6 +1171,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item := m.selectedInFlight(); item != nil && item.URL != "" {
 						_ = openURL(item.URL)
 					}
+				} else if m.overviewPane == 2 {
+					if repo := m.selectedIdleRepo(); repo != nil && repo.URL != "" {
+						_ = openURL(repo.URL)
+					}
 				} else if repo := m.selectedRepo(); repo != nil && repo.URL != "" {
 					_ = openURL(repo.URL)
 				}
@@ -1193,9 +1215,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "home", "g":
 			switch m.focus {
 			case 0:
-				if m.overviewPane == 1 {
+				switch m.overviewPane {
+				case 1:
 					m.inFlightCursor = 0
-				} else {
+				case 2:
+					m.idleCursor = 0
+				default:
 					m.cursor = 0
 				}
 			case 1:
@@ -1210,9 +1235,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G":
 			switch m.focus {
 			case 0:
-				if m.overviewPane == 1 {
+				switch m.overviewPane {
+				case 1:
 					m.inFlightCursor = max(0, len(m.inFlightItems())-1)
-				} else {
+				case 2:
+					m.idleCursor = max(0, len(idleRepositories(m.repos, time.Now()))-1)
+				default:
 					m.cursor = max(0, len(m.visibleRepos())-1)
 				}
 			case 1:
@@ -1497,9 +1525,12 @@ func (m *model) logScroll(n int) {
 func (m *model) move(n int) {
 	switch m.focus {
 	case 0:
-		if m.overviewPane == 1 {
+		switch m.overviewPane {
+		case 1:
 			m.inFlightCursor = max(0, min(len(m.inFlightItems())-1, m.inFlightCursor+n))
-		} else {
+		case 2:
+			m.idleCursor = max(0, min(len(idleRepositories(m.repos, time.Now()))-1, m.idleCursor+n))
+		default:
 			m.cursor = max(0, min(len(m.visibleRepos())-1, m.cursor+n))
 		}
 	case 1:
@@ -1521,6 +1552,84 @@ func (m model) inFlightItems() []inFlightItem {
 		agentTasks = m.agentTasks
 	}
 	return collectInFlightItems(m.repos, time.Now(), agentTasks)
+}
+
+func repoLastActivity(repo repository) time.Time {
+	var latest time.Time
+	consider := func(value string) {
+		if parsed := parseTime(value); !parsed.IsZero() && parsed.After(latest) {
+			latest = parsed
+		}
+	}
+	consider(repo.PushedAt)
+	for _, pr := range repo.PullRequests {
+		consider(pr.UpdatedAt)
+	}
+	for _, item := range repo.Runs {
+		consider(item.UpdatedAt)
+		if item.UpdatedAt == "" {
+			consider(item.CreatedAt)
+		}
+	}
+	return latest
+}
+
+func idleRepositories(repos []repository, now time.Time) []*repository {
+	var idle []*repository
+	for i := range repos {
+		repo := &repos[i]
+		if runningRuns(*repo) > 0 || queuedRuns(*repo) > 0 {
+			continue
+		}
+		last := repoLastActivity(*repo)
+		if last.IsZero() || now.Sub(last) <= idleRepositoryThreshold {
+			continue
+		}
+		idle = append(idle, repo)
+	}
+	sort.SliceStable(idle, func(i, j int) bool {
+		a, b := repoLastActivity(*idle[i]), repoLastActivity(*idle[j])
+		if !a.Equal(b) {
+			return a.Before(b)
+		}
+		return idle[i].FullName < idle[j].FullName
+	})
+	return idle
+}
+
+func (m model) selectedIdleRepo() *repository {
+	rows := idleRepositories(m.repos, time.Now())
+	if len(rows) == 0 {
+		return nil
+	}
+	return rows[max(0, min(m.idleCursor, len(rows)-1))]
+}
+
+func (m model) renderIdleRepositoryRows(w, h int) []string {
+	rows := idleRepositories(m.repos, time.Now())
+	out := []string{mutedStyle.Render(fit("REPOSITORY                                      LAST ACTIVITY", w))}
+	if len(rows) == 0 {
+		message := "No repositories match: CI idle and last activity >10m."
+		if len(m.repos) == 0 {
+			message = "Waiting for repository snapshot…"
+		}
+		out = append(out, mutedStyle.Render(fit(message, w)))
+	} else {
+		capacity := max(1, h-1)
+		start := max(0, min(m.idleCursor-capacity/2, max(0, len(rows)-capacity)))
+		for i := start; i < min(len(rows), start+capacity); i++ {
+			repo := rows[i]
+			line := titleStyle.Render(fit(repo.FullName, max(18, w-22))) + " " + timeStyle.Render(ageLabel(time.Since(repoLastActivity(*repo)))+" ago")
+			if i == m.idleCursor {
+				line = selectedRow(line, w)
+			}
+			out = append(out, fit(line, w))
+		}
+	}
+	for len(out) < h {
+		out = append(out, "")
+	}
+	return out[:min(len(out), h)]
 }
 
 func (m model) selectedInFlight() *inFlightItem {
@@ -1858,6 +1967,36 @@ var (
 	actionStyle     = lipgloss.NewStyle().Foreground(teal).Bold(true)
 	selectStyle     = lipgloss.NewStyle().Foreground(ink).Background(selectedBG).Bold(true)
 )
+
+func copyToClipboard(value string) error {
+	var name string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		name = "pbcopy"
+	case "windows":
+		name = "clip"
+	default:
+		for _, candidate := range []struct {
+			name string
+			args []string
+		}{{"wl-copy", nil}, {"xclip", []string{"-selection", "clipboard"}}, {"xsel", []string{"--clipboard", "--input"}}} {
+			if path, err := exec.LookPath(candidate.name); err == nil {
+				name, args = path, candidate.args
+				break
+			}
+		}
+	}
+	if name == "" {
+		return errors.New("no clipboard utility found (install wl-clipboard, xclip, or xsel)")
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = strings.NewReader(value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
 
 func openURL(raw string) error {
 	parsed, err := url.ParseRequestURI(raw)
@@ -2360,31 +2499,26 @@ func (m model) renderInFlightRows(w, h int) []string {
 
 func (m model) overviewView() string {
 	w, h := m.width, m.height
-	header := m.renderHeader(w)
-	tabs := m.renderTabs(w)
-	summary := m.renderOverviewSummary()
-	footer := m.renderFooter(w)
-	ciChart := m.renderCIHealthChart(w)
-	if w >= 108 && h >= 17 {
-		bodyH := max(5, h-7)
-		gap := 1
-		leftW := int(float64(w) * 0.61)
-		rightW := w - leftW - gap
-		left := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
-		right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
-		body := lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", body, footer)
+	header, tabs := m.renderHeader(w), m.renderTabs(w)
+	summary, footer, ciChart := m.renderOverviewSummary(), m.renderFooter(w), m.renderCIHealthChart(w)
+	if h >= 18 {
+		bodyH := max(5, h-12)
+		idle := box("IDLE REPOSITORIES · NO RUNNING / QUEUED CI · INACTIVE >10M", m.renderIdleRepositoryRows(w-2, 3), w, 5, m.overviewPane == 2)
+		if w >= 108 {
+			leftW := int(float64(w) * 0.61)
+			rightW := w - leftW - 1
+			left := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(leftW-2, bodyH-2), leftW, bodyH, m.overviewPane == 0)
+			right := box("IN FLIGHT / WAITING", m.renderInFlightRows(rightW-2, bodyH-2), rightW, bodyH, m.overviewPane == 1)
+			return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right), idle, footer)
+		}
+		attentionH := max(3, bodyH-4)
+		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
+		waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, 3), w, 5, m.overviewPane == 1)
+		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, idle, footer)
 	}
 	bodyH := max(3, h-7)
-	if bodyH < 7 {
-		attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, true)
-		return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, footer)
-	}
-	attentionH := max(3, (bodyH-1)*2/3)
-	waitH := bodyH - attentionH - 1
-	attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, attentionH-2), w, attentionH, m.overviewPane == 0)
-	waiting := box("IN FLIGHT / WAITING", m.renderInFlightRows(w-2, waitH-2), w, waitH, m.overviewPane == 1)
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, waiting, footer)
+	attention := box("REPOSITORY HEALTH · PUSH AGE + CI", m.renderAttentionRows(w-2, bodyH-2), w, bodyH, m.overviewPane == 0)
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabs, summary, ciChart, " ", attention, footer)
 }
 
 func repoGroupRank(repo repository, now time.Time) int {
@@ -3846,11 +3980,7 @@ func (m model) renderFooter(w int) string {
 	left := "↑↓ select · ←/→ queues · Enter open · l logs · r refresh · R force · C clear cache · ? help"
 	switch m.focus {
 	case 0:
-		if m.overviewPane == 0 {
-			left = "↑↓ repos · → in flight · Enter open · Space refresh · Delete back · r/R/C controls"
-		} else {
-			left = "↑↓ in flight · ← repos · Enter open · Space refresh · Delete back · r/R/C controls"
-		}
+		left = "↑↓ select · ←/→ panels · Y copy URL · Space refresh · Delete back · r/R/C controls"
 	case 1:
 		left = "↑↓ repos · Enter detail · / filter · Space refresh · Delete back · R force · C cache · o browser"
 		if m.detail {
@@ -3862,11 +3992,7 @@ func (m model) renderFooter(w int) string {
 	if w < 70 {
 		switch m.focus {
 		case 0:
-			if m.overviewPane == 0 {
-				left = "↑↓ repos · → waiting · Space refresh · Delete back · r/R/C"
-			} else {
-				left = "↑↓ waiting · ← repos · Space refresh · Delete back · r/R/C"
-			}
+			left = "↑↓ select · ←/→ panels · Y copy URL · Space refresh · Delete back"
 		case 1:
 			left = "↑↓ select · Enter detail · Space refresh · Delete back"
 			if m.detail {
@@ -3882,6 +4008,8 @@ func (m model) renderFooter(w int) string {
 	right := ""
 	if m.lastErr != "" {
 		right = badStyle.Render("⚠ " + m.lastErr)
+	} else if m.copyNotice != "" && time.Since(m.copyNoticeAt) < 4*time.Second {
+		right = goodStyle.Render("✓ " + m.copyNotice)
 	} else if !m.lastRepos.IsZero() {
 		right = mutedStyle.Render("GitHub " + shortAge(m.lastRepos.Format(time.RFC3339)) + " ago")
 	}
@@ -3939,6 +4067,7 @@ func (m model) helpView() string {
 		"  Enter               Open selected item, enter repository detail, or open CI logs",
 		"  l                   Open logs for a selected workflow run",
 		"  o                   Open selected GitHub destination in browser",
+		"  Y (Shift+Y)          Copy selected idle repository URL",
 		"  a                   Optional activity diagnostic (not a people ranking)",
 		"  Esc                 Return from detail or filter",
 		"  /                   Filter repositories", "",
@@ -3956,6 +4085,7 @@ func (m model) helpView() string {
 		"  Commit authors and Actions trigger actors are observed identities, not agent owners.",
 		"  Activity history is loaded only when the optional identity diagnostic is opened.",
 		"  Repository and PR summaries refresh every 3 minutes; Actions refresh every 60 seconds.",
+		"  Idle means no running/queued CI and last push, PR update, or Actions update older than 10 minutes.",
 		"  Cached data remains visible during API outages; stale data is labelled.",
 		"  r refreshes; R bypasses ETags; C clears local cache and refreshes.",
 		"  Agent events are read-only from --agent-events or GH_FLEET_AGENT_EVENTS.",
