@@ -14,7 +14,7 @@ BOT_MARKERS = ("[bot]", "ai agent", "ai-agent", "agent bot", "copilot", "claude"
 def is_bot(name, email, login=None, account_type=None):
     if (account_type or "").lower() == "bot":
         return True
-    if login and (login.lower().endswith("[bot]") or "agent" in login.lower()):
+    if login and (login.lower().endswith("[bot]") ):
         return True
     value = (name + " " + email + " " + (login or "")).lower()
     return any(marker in value for marker in BOT_MARKERS)
