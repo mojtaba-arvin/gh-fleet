@@ -26,3 +26,7 @@ Pull requests should describe the change, how it was checked, and any terminal o
 - Keep the overview inexpensive; repository-specific detail should refresh only the selected repository.
 - Preserve useful cached data when a request fails.
 - Keep user-visible labels concise and avoid repeating the account owner unnecessarily.
+
+## GitHub Issue title convention
+
+Use `<type>(<scope>): <short, clear description>` for every Issue title. The type must be one of `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `perf`, or `revert`; scope must be concise lowercase kebab-case. Keep priorities, milestones, feature/command IDs, agent identity, and run metadata in labels or the Issue body. Do not use bracketed prefixes, standalone priority codes, `Recover:`, or supervisor identity prefixes. Preserve Issue metadata and relationships when renaming. See the [shared canonical contract](https://github.com/mojtaba-arvin/commands/blob/main/_shared/issue-title-contract.md).
