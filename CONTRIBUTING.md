@@ -33,4 +33,4 @@ Use `<type>(<scope>): <short, clear description>` for every Issue title. The typ
 
 ## Commit identity and attribution
 
-Read `COMMIT_IDENTITY.md` before creating or reviewing commits. Maintainer-directed AI-assisted commits must use the verified maintainer author identity; preserve other human contributors' actual authorship; do not use AI/bot authors or bot co-author trailers. Genuine automation is allowed only under the documented explicit exception. Disclose AI assistance in the PR body and do not rewrite historical commits.
+Read `COMMIT_IDENTITY.md` before creating or reviewing commits. Maintainer-directed AI-assisted commits must use the verified maintainer Git author identity. Preserve other human contributors' Git author identity and GitHub attribution. Do not use AI/bot authors or prohibited bot/agent committers or co-author trailers. Genuine automation is allowed only under the documented, narrowly scoped exception. Disclose AI assistance in the PR body and never rewrite historical commits.
