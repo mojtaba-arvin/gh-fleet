@@ -30,3 +30,7 @@ Pull requests should describe the change, how it was checked, and any terminal o
 ## GitHub Issue title convention
 
 Use `<type>(<scope>): <short, clear description>` for every Issue title. The type must be one of `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `perf`, or `revert`; scope must be concise lowercase kebab-case. Keep priorities, milestones, feature identifiers, agent identity, and run metadata in labels or the Issue body. Do not use bracketed prefixes, standalone priority codes, `Recover:`, or supervisor identity prefixes. Preserve Issue metadata and relationships when renaming. This repository keeps the complete title convention here so contributors do not depend on external/private policy repositories.
+
+## Commit identity and attribution
+
+Read `COMMIT_IDENTITY.md` before creating or reviewing commits. Maintainer-directed AI-assisted commits must use the verified maintainer Git author identity. Preserve other human contributors' Git author identity and GitHub attribution. Do not use AI/bot authors or prohibited bot/agent committers or co-author trailers. Genuine automation is allowed only under the documented, narrowly scoped exception. Disclose AI assistance in the PR body and never rewrite historical commits.

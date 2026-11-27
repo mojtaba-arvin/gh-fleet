@@ -46,6 +46,8 @@ jobs:
         run: go test ./...
       - name: Python SDK tests
         run: PYTHONPATH=integrations/python/src python3 -m unittest discover -s integrations/python/tests -v
+      - name: Commit identity policy self-tests
+        run: python3 scripts/check_commit_identity.py --self-test
       - name: Build current platform
         run: go build ./...
       - name: Build release targets
@@ -56,3 +58,24 @@ jobs:
             set -- $target
             GOOS=$1 GOARCH=$2 go build -o /dev/null ./...
           done
+
+  validate-pr-attribution:
+    name: PR commit attribution
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate policy fixtures
+        run: python3 scripts/check_commit_identity.py --self-test
+      - name: Validate every pull request commit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/check_commit_identity.py
