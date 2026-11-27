@@ -46,6 +46,8 @@ jobs:
         run: go test ./...
       - name: Python SDK tests
         run: PYTHONPATH=integrations/python/src python3 -m unittest discover -s integrations/python/tests -v
+      - name: Commit identity policy self-tests
+        run: python3 scripts/check_commit_identity.py --self-test
       - name: Build current platform
         run: go build ./...
       - name: Build release targets
